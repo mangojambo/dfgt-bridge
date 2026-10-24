@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dfgt-bridge"
+version = "0.1.0.dev0"
+description = "Incremental, offline-testable HID PID force feedback bridge for DFGT"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-2.0-only"}
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

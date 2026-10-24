@@ -16,8 +16,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / 'dfgt_uhid_g29_probe_v08_driving.py'
-LIVE = ROOT / 'dfgt_uhid_g29_ffb_v013_live.py'
+BASE = ROOT / 'reference/v0.8/dfgt_uhid_g29_probe_v08_driving.py'
+LIVE = ROOT / 'reference/v0.13/dfgt_uhid_g29_ffb_v013_live.py'
+FIXTURES = ROOT / 'tests/fixtures/dirt5'
 
 
 def load_reviewed_definitions(path, physical_mock=False):
@@ -115,7 +116,9 @@ class OfflineAudit(unittest.TestCase):
     def test_v08_input_contract_unchanged_in_all_ffb_versions(self):
         baseline = load_reviewed_definitions(BASE)
         base_tree = ast.parse(BASE.read_text())
-        for path in sorted(ROOT.glob('dfgt_uhid_g29_ffb_v0*.py')):
+        versions = sorted((ROOT / 'archive/experiments/ffb').rglob('dfgt_uhid_g29_ffb_v0*.py')) + [LIVE]
+        self.assertEqual(len(versions), 5)
+        for path in versions:
             with self.subTest(version=path.name):
                 other = load_reviewed_definitions(path)
                 self.assertEqual(other.descriptor(), baseline.descriptor())
@@ -132,7 +135,7 @@ class OfflineAudit(unittest.TestCase):
                                              baseline.report(state, axis, invert))
 
     def test_real_csv_handshake_and_no_running_torque(self):
-        files = sorted(ROOT.glob('ffb*.csv'))
+        files = sorted(FIXTURES.glob('ffb*.csv'))
         self.assertEqual(len(files), 5)
         total = 0
         for path in files:
@@ -158,7 +161,7 @@ class OfflineAudit(unittest.TestCase):
 
     def test_real_csv_contains_no_race_effect_parameters_or_start(self):
         ids = Counter()
-        for path in ROOT.glob('ffb*.csv'):
+        for path in FIXTURES.glob('ffb*.csv'):
             with path.open() as handle:
                 for row in csv.DictReader(handle):
                     ids[int(row['hex_bytes'][:2], 16)] += 1

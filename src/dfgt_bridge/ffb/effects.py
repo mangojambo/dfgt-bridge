@@ -11,6 +11,7 @@ from .renderer import (ANGLE_MAX, MotionEstimator, condition_force,
                        enveloped_constant, periodic_wave, ramp_level)
 from .pool import EffectPool
 from .lifecycle import effect_time, start_effect
+from .pid_decoder import ReportError, validate_report
 
 
 class PIDPassive:
@@ -30,8 +31,7 @@ class PIDPassive:
 
     def set_report(self, packet, number):
         if number == 0x54:  # Create New Effect, host feature report.
-            if len(packet) != 4 or packet[0] != number or packet[3] & 0xfe:
-                raise ValueError('Create New Effect malformado')
+            packet = validate_report(packet, feature=True, number=number)
             allocation = self.pool.allocate(packet[1], self._new_effect)
             self.last_block = allocation.index
 
@@ -40,7 +40,7 @@ class PIDPassive:
             return bytes((0x56, self.pool.last.index, self.pool.last.status)) + struct.pack('<H', self.pool.available)
         if number == 0x57:  # PID Pool (id, RAM size, simultaneous max, flags)
             return bytes((0x57,)) + struct.pack('<HBB', self.pool.ram_size, self.pool.capacity, 1)
-        return bytes([number])
+        raise ReportError('unsupported_feature')
 
 
 PID_EFFECT_NAMES = {
@@ -123,10 +123,31 @@ class PIDSteeringBridge(PIDPassive):
             effect_time(item, logical)
         return logical
 
-    def set_report(self, packet, number):
+    def disarm(self):
+        self.armed = False
+        self.pool.reset()
+        self.last_block = 0
+        self.paused = False
+        self.pause_started = None
+        self.paused_duration = 0.0
+        self.actuators_enabled = False
+        self.motion_estimator.reset()
+
+    def state_report(self):
+        now = self.clock()
+        if not math.isfinite(now):
+            raise ValueError('Relógio PID deve ser finito')
+        logical = self.advance(now)
+        active = [index for index, item in self.effects.items()
+                  if effect_time(item, logical) is not None]
+        playing = bool(active) and self.armed and self.actuators_enabled and not self.paused
+        flags = int(self.paused) | (int(self.actuators_enabled) << 1) | (int(playing) << 2)
+        return bytes((0x50, flags, min(active, default=1)))
+
+    def write_feature(self, packet, number=0x54):
+        if number != 0x54:
+            raise ReportError('unsupported_feature')
         super().set_report(packet, number)
-        if not self.armed:
-            return
         if number == 0x54 and len(packet) >= 2:
             if self.pool.last.status != 1:
                 return
@@ -136,17 +157,30 @@ class PIDSteeringBridge(PIDPassive):
             self.pid_counts['created'] += 1
             if kind == 3 or kind not in PID_EFFECT_NAMES:
                 self.ignored[f'unsupported_kind_{kind}'] += 1
-        elif number == 0x5b and len(packet) >= 2:
-            if packet[1] in self.effects:
-                self.pool.free(packet[1])
-            self.pid_counts['deleted'] += 1
-        elif number == 0x59 and len(packet) >= 2:
-            self.gain = packet[1] / 255.0
+
+    def set_report(self, packet, number):
+        """API de compatibilidade; o adaptador estrito usa write_* diretamente."""
+        try:
+            if number == 0x54:
+                self.write_feature(packet, number)
+            else:
+                self.write_output(validate_report(packet, number=number))
+            return True
+        except ReportError as exc:
+            self.ignored[exc.reason] += 1
+            return False
 
     def seen(self, packet):
         super().seen(packet)
-        if not self.armed or not packet:
-            return
+        try:
+            self.write_output(packet)
+            return True
+        except ReportError as exc:
+            self.ignored[exc.reason] += 1
+            return False
+
+    def write_output(self, packet):
+        packet = validate_report(packet)
         op = packet[0]
         self.pid_counts[f'0x{op:02x}'] += 1
         now = self.clock()
@@ -190,12 +224,13 @@ class PIDSteeringBridge(PIDPassive):
         block = packet[1]
         item = self.effects.get(block)
         if item is None:
-            # Unknown vendor commands (0x0D, 0xF5, 0xF8) are kept out of FFB.
-            if op in (0x51, 0x52, 0x53, 0x55, 0x58, 0x5A, 0x5B, 0x5D):
-                self.ignored['pid_missing_block'] += 1
-            elif op not in (0x0D, 0xF5, 0xF8):
-                self.ignored[f'opcode_0x{op:02x}'] += 1
-            return
+            raise ReportError('pid_missing_block')
+        expected_kind = {0x55: (1,), 0x58: (2,), 0x53: (9, 10, 11, 12),
+                         0x5d: (4, 5, 6, 7, 8)}.get(op)
+        if expected_kind and item['kind'] not in expected_kind:
+            raise ReportError('effect_family_mismatch')
+        if op == 0x51 and packet[2] != item['kind']:
+            raise ReportError('effect_type_mismatch')
         logical = self.logical_time(now)
         effect_time(item, logical)  # Update não revive efeito já expirado.
         if op == 0x51 and len(packet) >= 18:
@@ -253,6 +288,7 @@ class PIDSteeringBridge(PIDPassive):
                 item['running'] = False
         elif op == 0x5b:
             self.pool.free(block)
+            self.pid_counts['deleted'] += 1
         else:
             self.ignored[f'unsupported_report_0x{op:02x}'] += 1
         if item.get('running') and op in (0x51, 0x52, 0x53, 0x55, 0x58, 0x5d):

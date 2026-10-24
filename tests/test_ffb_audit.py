@@ -242,7 +242,6 @@ class OfflineAudit(unittest.TestCase):
         self.bridge.seen(bytes((0x50, 6)))
         self.assertEqual(self.bridge.raw_level(), 16384)
 
-    @unittest.expectedFailure
     def test_gap_output_report_works_via_set_report_transport(self):
         block = self.constant()
         self.bridge.set_report(bytes((0x55, block)) + struct.pack('<h', 8000), 0x55)

@@ -1,4 +1,12 @@
-# Plano de conexão à baseline v0.8 — não executado
+# Plano de conexão à baseline v0.8
+
+## Estado após a implementação passiva
+
+A fachada e o runner passivo deste plano foram implementados em arquivos novos, com testes offline e sem execução em dispositivos. `scripts/run-passive.py` usa a entrada readonly e somente MockBackend; `scripts/replay-capture.py` confere capturas em memória. As referências e launchers continuam intactos. Consulte [PASSIVE_RUNNER.md](PASSIVE_RUNNER.md) para os comandos preparados, schema de captura, limites e critérios pendentes de validação real.
+
+As decisões de CLOSE/OPEN, GET Input, estado PID assíncrono e duração ilimitada exclusivamente mock estão detalhadas em [PID_TRANSPORT.md](PID_TRANSPORT.md). A próxima fase é a coleta passiva real pelo operador, ainda sem backend físico. O plano original abaixo registra a sequência e suas restrições; a integração ao motor permanece não executada.
+
+## Plano original da etapa anterior
 
 O núcleo, o transporte em bytes e a saída simulada estão testados offline. As referências e launchers permanecem congelados. Este plano não adiciona um entrypoint real, não abre dispositivos e não associa drivers.
 

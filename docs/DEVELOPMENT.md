@@ -104,3 +104,22 @@ Foram adicionados `pid_decoder.py` (validação do contrato PID), `transport.py`
 Pronto para o próximo trabalho de integração: contratos de bytes, pool, timeline, matemática, mistura e scheduler de saída simulada. Ainda não pronto como bridge físico: não há leitor/escritor UHID/EVDEV novo nem integração ao launcher, notificações assíncronas de PID State ou implementação de Custom. A validação de protocolo não transforma o UHID em uma réplica completa do USB proprietário do G29.
 
 O plano de conexão por adaptador, **sem execução nesta entrega**, está em [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md). Os detalhes de tipos, Loop Count zero/255, política de memória, idempotência e limites do mock estão em [PID_TRANSPORT.md](PID_TRANSPORT.md). Antes de qualquer backend físico, ainda serão necessárias captura completa de corrida e aprovação para os ensaios correspondentes.
+
+## Runner passivo implementado
+
+Estado atual: **220 testes passando, zero falhas esperadas e zero ignorados**. Foram adicionados 52 casos aos 168 anteriores, incluindo equivalência AST/bytes da entrada v0.8, ABI/erros UHID, captura completa em JSONL/gzip, replay semântico, tráfego simultâneo, encerramento inesperado e cleanup com falhas injetadas. A execução adicional por `scripts/test-offline.py` bloqueia opens reais de dispositivos com audit hook. Nenhum dispositivo foi aberto para validar esta etapa.
+
+| Commit | Entrega |
+|---|---|
+| `023fb99` | Fachada v0.8 byte a byte, DFGT readonly e I/O UHID limitado |
+| `da3b4ce` | Corridas longas exclusivamente mock e reset em CLOSE sem encerrar o dispositivo |
+| `dc189cb` | Timestamps monotônicos por SYN_REPORT, configurados somente no leitor |
+| `df41a52` | Captura versionada, fases, respostas/estado/forças e replay determinístico |
+| `bbea3a7` | Latência de processamento/entrega separada do relógio reproduzido |
+| `f8016c4` | Runner passivo, console/diagnóstico e entrypoints separados dos launchers |
+
+Arquivos novos em `input/`, `uhid_io.py`, `passive.py`, `capture.py`, `replay.py` e `runner.py`; contratos do núcleo receberam apenas as opções de sessão mock e extensão de Input GET necessárias. Não se reescreveu o núcleo matemático nem referências históricas. Não há backend EVDEV físico, seleção de comandos Logitech ou opção para ativar motor.
+
+Consulte [PASSIVE_RUNNER.md](PASSIVE_RUNNER.md) para comandos preparados e schema. Próxima tarefa: operador coletar corrida real passiva, confirmar identidade/controles/menu FFB e driver virtual, registrar Proton/rota/cenário e conferir replay completo. Probes não são identificáveis com certeza por UHID; fases são anotações humanas, com autoria conservada como desconhecida. Os CSVs antigos continuam insuficientes para validar corrida e a fixture nova de dez minutos é explicitamente sintética.
+
+Permanecem pendentes hardware/Proton reais, associação efetiva de driver, aceitação das notificações PID State, escala/filtros de movimento, tipos/flags/Loop Count usados pelo jogo, latência sustentada e completude dos efeitos suportados. Só depois dessa coleta será revisado um adaptador físico, com limites, deadline independente, emergência/exclusividade e ensaio aprovado. Os launchers e configurações SteamOS permanecem inalterados.

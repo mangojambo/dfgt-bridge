@@ -1,6 +1,6 @@
 # Transporte PID e ciclo de vida offline
 
-Esta etapa encerra as seis divergências conhecidas restantes da auditoria. O pacote não abre arquivos de dispositivo e não está conectado aos launchers. `OfflineSession` aceita exclusivamente `MockBackend`; `PIDTransport` transforma bytes em chamadas ao núcleo e devolve respostas em bytes, sem fazer I/O.
+Esta etapa encerra as seis divergências conhecidas restantes da auditoria. O núcleo e `OfflineSession` não abrem arquivos de dispositivo e não estão conectados aos launchers. `OfflineSession` aceita exclusivamente `MockBackend`; `PIDTransport` transforma bytes em chamadas ao núcleo e devolve respostas em bytes, sem fazer I/O. O runner passivo posterior isola o I/O em módulos próprios; suas extensões estão ao final deste documento.
 
 ## Tipos e framing
 

@@ -36,7 +36,7 @@ class IntegrationTests(unittest.TestCase):
         block = self.constant()
         self.assertEqual(self.session.output.dev.level, 3200)
         reply = self.session.handle(get_report(0x50, next(self.requests), 2))[0]
-        self.assertEqual(reply[12:], bytes((0x50, 6, block)))
+        self.assertEqual(reply[12:], bytes((0x50, 0xfe, block)))
         self.send(bytes((0x5a, block, 3, 0)))
         self.assertEqual(self.session.output.dev.level, 0)
         self.send(bytes((0x5b, block)))

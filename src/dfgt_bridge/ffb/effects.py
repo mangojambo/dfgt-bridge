@@ -141,7 +141,9 @@ class PIDSteeringBridge(PIDPassive):
         active = [index for index, item in self.effects.items()
                   if effect_time(item, logical) is not None]
         playing = bool(active) and self.armed and self.actuators_enabled and not self.paused
-        flags = int(self.paused) | (int(self.actuators_enabled) << 1) | (int(playing) << 2)
+        # No descritor congelado, Report Count=8 tem só três usages.
+        # HID repete o último (Effect Playing) nos bits 2..7, não são padding.
+        flags = int(self.paused) | (int(self.actuators_enabled) << 1) | (0xfc if playing else 0)
         return bytes((0x50, flags, min(active, default=1)))
 
     def write_feature(self, packet, number=0x54):

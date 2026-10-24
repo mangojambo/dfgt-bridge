@@ -30,6 +30,14 @@ class LifecycleVectors(unittest.TestCase):
 
 
 class PoolTests(LifecycleVectors):
+    def test_pid_state_mirrors_repeated_data_usages_in_frozen_descriptor(self):
+        descriptor = load_reviewed_definitions(BASE).descriptor()
+        self.assertIn(bytes.fromhex('099f09a0099415002501750195088102'), descriptor)
+        block = self.constant()
+        self.assertEqual(self.bridge.state_report(), bytes((0x50, 0xfe, block)))
+        self.bridge.seen(bytes((0x50, 5)))
+        self.assertEqual(self.bridge.state_report(), bytes((0x50, 3, block)))
+
     def test_pool_and_loop_contract_matches_preserved_descriptor(self):
         descriptor = load_reviewed_definitions(BASE).descriptor()
         fields = []

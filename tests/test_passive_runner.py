@@ -34,6 +34,7 @@ class FakeWheel(FakeResource):
 
 class FakeVirtual(FakeResource):
     fd = 12
+    owner_token = 'dfgt-bridge-test-owned'
     def __init__(self, events):
         self.events, self.writes = list(events), []
     def write(self, data):
@@ -51,6 +52,21 @@ class FakeSelector(FakeResource):
         return [(key, 1) for key in self.keys]
 
 
+class FakeBinding:
+    last = dict(node='0003:046D:C24F.FAKE', driver='hid-universal-pidff',
+                evdev=['fake-event'], ff_capabilities=['40000 0'], ready=True)
+    def prepare(self):
+        pass
+    def start(self, token):
+        self.token = token
+    def poll(self):
+        return True
+    def cancel(self):
+        pass
+    def finish(self):
+        pass
+
+
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.directory = self.enterContext(tempfile.TemporaryDirectory())
@@ -66,6 +82,8 @@ class RunnerTests(unittest.TestCase):
         self.enterContext(patch('sys.stdin.isatty', return_value=False))
         self.enterContext(patch.object(runner, 'virtual_nodes', return_value=set()))
         self.enterContext(patch.object(runner, 'bindings', return_value=[]))
+        self.binder = FakeBinding()
+        self.enterContext(patch.object(runner, 'PIDBinding', return_value=self.binder))
         self.enterContext(patch.object(runner.time, 'monotonic_ns', side_effect=self.clock))
 
     def clock(self):

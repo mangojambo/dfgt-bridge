@@ -17,6 +17,7 @@ from .diagnostics import classify_uhid_result
 from .input.physical_wheel import PhysicalWheel, SOURCE
 from .passive import PassiveSession
 from .uhid_io import VirtualDevice
+from .pid_binding import PIDBinding, BindingError
 
 
 def virtual_nodes():
@@ -39,7 +40,7 @@ def diagnostic(session, runtime, elapsed, previous_events):
     result = session.last_result or {}
     counts = summary['counts']
     events = counts.get('uhid', 0)
-    print(json.dumps(dict(passive=True, phase=session.phase,
+    print(json.dumps(dict(passive=not bool(runtime.get('physical')), phase=session.phase,
                           allocated=summary['allocated'], active=summary['active'], paused=summary['paused'],
                           created=counts.get('created', 0), freed=counts.get('freed', 0),
                           types=summary['types'], output=counts.get('uhid_6', 0),
@@ -53,16 +54,16 @@ def diagnostic(session, runtime, elapsed, previous_events):
 
 
 def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
-        selector_factory=selectors.DefaultSelector, stop=None, physical_factory=None):
+        selector_factory=selectors.DefaultSelector, stop=None, physical_factory=None, binding_factory=None):
     """Factories injetáveis para testes offline. Não há factory de backend."""
     origin = time.monotonic_ns()
     stop = {'reason': None} if stop is None else stop
     session = PassiveSession(origin, capacity=args.capacity, strength_percent=args.strength,
                              gas_axis=args.gas_axis, invert_gas=args.invert_gas)
     runtime = dict(max_processing_ns=0, slow_actions=0, missed_ticks=0,
-                   input_resyncs=0, binding=[], report_classification={}, proprietary_commands={})
+                   input_resyncs=0, binding=[], ready=False, report_classification={}, proprietary_commands={})
     classifications, proprietary_commands = Counter(), Counter()
-    writer = recorder = physical = None
+    writer = recorder = physical = binding = None
     enable_ffb = getattr(args, 'enable_ffb', False)
     physical_config = dict(strength=getattr(args, 'ffb_strength', 10),
                            maximum=getattr(args, 'ffb_max_strength', 20),
@@ -76,7 +77,6 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
         # Recursos externos são fechados mesmo se captura/setup/renderer falhar.
         with ExitStack() as stack:
             stack.callback(session.core.close)
-            before = virtual_nodes()
             wheel = stack.enter_context(wheel_factory(args.source))
             if args.capture:
                 metadata = session.metadata()
@@ -89,7 +89,12 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                                     physical_config=physical_config, physical_trace=trace_path)
                 writer = CaptureWriter(args.capture, metadata)
                 stack.callback(writer.close)
+            binding = (binding_factory or PIDBinding)(timeout=getattr(args, 'bind_timeout', 25))
+            stack.callback(binding.finish)  # Depois de DESTROY, libera qualquer probe síncrono.
+            binding.prepare()  # Não há UHID ainda: carregar módulo não bloqueia seu GET_REPORT.
             virtual = stack.enter_context(virtual_factory())
+            stack.callback(binding.cancel)  # Antes de fechar UHID: não iniciar novas escritas.
+            binding.start(virtual.owner_token)
             recorder = Recorder(session, writer, virtual.write)
             selector = stack.enter_context(selector_factory())
             selector.register(virtual.fd, selectors.EVENT_READ, 'uhid')
@@ -97,7 +102,8 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
             console = b''
             if sys.stdin.isatty():
                 selector.register(sys.stdin.fileno(), selectors.EVENT_READ, 'console')
-            if enable_ffb:
+            def start_physical():
+                nonlocal physical_factory, physical
                 if physical_factory is None:
                     from .physical_worker import PhysicalClient
                     physical_factory = PhysicalClient
@@ -133,19 +139,36 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                 runtime['slow_actions'] += int(duration > 10_000_000)
                 return value
 
-            print('G29 046d:c24f; ' + ('FFB EVDEV SUPERVISIONADO explicitamente habilitado.' if physical else
-                  'PASSIVO; DFGT somente leitura; saída FFB exclusivamente mock.'), flush=True)
+            print('Inicializando G29 046d:c24f; aguardando PIDFF, EVDEV e capacidades FFB. '
+                  'Saída física bloqueada até prontidão.', flush=True)
             print(f'Acelerador ABS_Y → HID {args.gas_axis.upper()} (invertido={args.invert_gas}); '
                   'freio ABS_Z → HID Rz; direção ABS_X → HID X16.', flush=True)
             print('Console: race | menu | init | strength 0..60 | summary | quit. Ctrl+C encerra.', flush=True)
-            if physical:
+            if enable_ffb:
                 print('FFB: ffb-stop | ffb-arm | ffb-strength 0..máximo | ffb-status. '
                       'strength continua controlando somente a simulação.', flush=True)
+            dispatch('binding', {'ready': False})
             dispatch('input', {'state': wheel.state()})
             next_tick = time.monotonic_ns()
             last_summary = next_tick
             previous_events = 0
             while stop['reason'] is None and not session.core.closed:
+                try:
+                    bound = binding.poll()
+                finally:
+                    runtime['binding'] = [binding.last]
+                if stop['reason'] is not None:
+                    break
+                if bound and not runtime['ready']:
+                    dispatch('binding', {'ready': True})
+                    runtime['ready'] = True
+                    runtime['binding'] = [binding.last]
+                    print('[PRONTO] ' + json.dumps(binding.last, sort_keys=True), flush=True)
+                    if getattr(binding, 'dynamic_id_added', False):
+                        print('[PIDFF] ID dinâmico C24F registrado; permanece no módulo até descarregá-lo '
+                              'ou reiniciar. Não é regra por instância; não conectar outro G29 nessa condição.', flush=True)
+                    if enable_ffb:
+                        start_physical()
                 if physical:
                     physical.service()
                 for key, _ in selector.select(.01):
@@ -207,12 +230,14 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                     dispatch('tick', {})
                     next_tick = now + 22_222_223  # Sem recuperar ticks antigos por rajada.
                 if now-last_summary >= 1_000_000_000:
-                    runtime['binding'] = bindings(before)
+                    runtime['binding'] = [binding.last]
                     previous_events = diagnostic(session, runtime, (now-last_summary)/1e9, previous_events)
                     if writer:
                         writer.flush()
                     last_summary = now
                 if args.duration is not None and now-origin >= args.duration*1e9:
+                    if not runtime['ready']:
+                        raise BindingError(f'Duração encerrou antes da prontidão PIDFF; diagnóstico={binding.last}')
                     stop['reason'] = 'duration'
             # Ainda dentro dos contextos para registrar cleanup antes do DESTROY.
             dispatch('close', {'reason': stop['reason']})
@@ -222,6 +247,9 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                 writer.flush()
             complete = True
     except BaseException as exc:
+        runtime['ready'] = False
+        if binding is not None:
+            runtime['binding'] = [binding.last]
         failure = type(exc).__name__ + ': ' + str(exc)
         # ExitStack já removeu UHID/entrada; não tentar entregar mais pacotes.
         # Se o stream fechou, a falta do footer denuncia captura interrompida.
@@ -237,6 +265,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', default=SOURCE)
     parser.add_argument('--capture', metavar='CAPTURA.jsonl')
+    parser.add_argument('--auto-pidff', action='store_true', default=True,
+                        help='Compatibilidade v0.8: associação PIDFF automática já é padrão')
+    parser.add_argument('--identity', choices=('g29',), default='g29', help='Identidade virtual fixa preservada')
+    parser.add_argument('--bind-timeout', type=float, default=25, help='Prazo de prontidão PIDFF/EVDEV/FF, 1..60s')
     parser.add_argument('--enable-ffb', action='store_true', help='Autoriza saída física DFGT supervisionada')
     parser.add_argument('--ffb-strength', type=int, choices=range(0, 11), default=10, metavar='0..10')
     parser.add_argument('--ffb-max-strength', type=int, choices=range(10, 31), default=20, metavar='10..30')
@@ -257,6 +289,8 @@ def main(argv=None):
                         help='Rota anotada; não é detectada a partir dos bytes')
     parser.add_argument('--scenario', default='unknown', help='Carro/pista/ajustes anotados')
     args = parser.parse_args(argv)
+    if not __import__('math').isfinite(args.bind_timeout) or not 1 <= args.bind_timeout <= 60:
+        parser.error('--bind-timeout deve ser 1..60 segundos')
     if args.game_pid is not None and args.game_pid < 1:
         parser.error('--game-pid deve ser positivo e identificar DiRT5.exe')
     if args.duration is not None and (not __import__('math').isfinite(args.duration) or args.duration <= 0):
@@ -269,7 +303,7 @@ def main(argv=None):
         for number in (signal.SIGINT, signal.SIGTERM):
             previous[number] = signal.signal(number, interrupted)
         run(args, stop=stop)
-    except (OSError, EOFError, ValueError) as exc:
+    except (OSError, EOFError, ValueError, BindingError) as exc:
         print('Runner encerrado: ' + str(exc), file=sys.stderr)
         return 1
     finally:

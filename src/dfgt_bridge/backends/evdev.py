@@ -8,6 +8,7 @@ import fcntl
 import os
 import platform
 import struct
+import time
 from types import SimpleNamespace
 
 from ..input.physical_wheel import INPUT_EVENT
@@ -51,6 +52,7 @@ class EvdevBackend:
         self.validated = self.gain_on = False
         self.freshness_guard = lambda: None
         self.uploads = self.deduplicated = 0
+        self.io_calls = self.last_io_ns = self.max_io_ns = 0
         self.signature = None
         try:
             _, vendor, product, _ = struct.unpack('=4H', fcntl.ioctl(self.fd, 0x80084502, bytes(8)))
@@ -78,8 +80,17 @@ class EvdevBackend:
 
     def _event(self, kind, code, value):
         data = INPUT_EVENT.pack(0, 0, kind, code, value)
-        if os.write(self.fd, data) != len(data):
+        if self._timed(lambda: os.write(self.fd, data)) != len(data):
             raise OSError('Escrita EVDEV parcial; abortar sem reenviar cauda')
+
+    def _timed(self, operation):
+        started = time.perf_counter_ns()
+        try:
+            return operation()
+        finally:
+            self.io_calls += 1
+            self.last_io_ns = time.perf_counter_ns()-started
+            self.max_io_ns = max(self.max_io_ns, self.last_io_ns)
 
     def upload_effect(self, request):
         if (request.effect_id not in (-1, self.slot) or not 1 <= request.duration_ms <= 160
@@ -95,7 +106,7 @@ class EvdevBackend:
         effect.replay.first = request.duration_ms
         effect.u.constant.level = request.level
         buffer = bytearray(bytes(effect))
-        fcntl.ioctl(self.fd, 0x40304580, buffer, True)  # EVIOCSFF
+        self._timed(lambda: fcntl.ioctl(self.fd, 0x40304580, buffer, True))  # EVIOCSFF
         allocated = Effect.from_buffer_copy(buffer).id
         if not 0 <= allocated < self.capacity or (self.slot >= 0 and allocated != self.slot):
             raise OSError('Kernel não reutilizou o único slot físico')
@@ -124,7 +135,7 @@ class EvdevBackend:
     def erase_effect(self, effect_id):
         if effect_id != self.slot or effect_id < 0:
             raise ValueError('Slot físico não pertence a este backend')
-        fcntl.ioctl(self.fd, 0x40044581, effect_id)  # EVIOCRMFF recebe ID, não ponteiro.
+        self._timed(lambda: fcntl.ioctl(self.fd, 0x40044581, effect_id))  # ID, não ponteiro.
         self.slot, self.signature = -1, None
 
     def close(self):

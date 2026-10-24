@@ -30,6 +30,7 @@ class SupervisedPolicy:
         self.hard_fault = False
         self.reason = 'awaiting_first_calculation'
         self.events = self.accepted = self.rejected = self.deduplicated = 0
+        self.rate_limited = 0
         self.latency_ns = self.max_latency_ns = 0
         self.frame = None
         self.closed = False
@@ -90,8 +91,13 @@ class SupervisedPolicy:
                         self.max_latency_ns = max(self.max_latency_ns, self.latency_ns)
                         if not self.latched:
                             before = self.output.writes
+                            previous_tick = self.output.last_tick
                             self.output.tick({k: v*self.polarity for k, v in components.items()})
-                            self.deduplicated += int(self.output.playing and self.output.writes == before)
+                            if self.output.playing and self.output.writes == before:
+                                if self.now_ns/1e9-previous_tick >= self.output.interval:
+                                    self.deduplicated += 1
+                                else:
+                                    self.rate_limited += 1
                             self.reason = (data.get('zero_reason') or 'renderer_zero') if self.output.last_sent == 0 else None
             elif action == 'stop':
                 self.minimum_epoch = max(self.minimum_epoch, data.get('epoch', 0))
@@ -127,13 +133,20 @@ class SupervisedPolicy:
 
     def snapshot(self):
         mix = self.output.last_mix
+        try:
+            raw_total = math.fsum(self.frame['components'].values()) if self.frame else 0
+        except OverflowError:
+            raw_total = None
         return dict(strength=self.output.strength_percent, maximum=self.output.max_strength_percent,
                     polarity=self.polarity, latched=self.latched, hard_fault=self.hard_fault,
                     closed=self.closed, zero_reason=self.reason,
                     renderer_components=self.frame['components'] if self.frame else {},
+                    renderer_total=raw_total, requested_before_limit=mix.requested if mix else 0,
+                    limited_force=mix.limited if mix else 0,
                     game_force=self.frame.get('game_force', {}) if self.frame else {},
                     mix=asdict(mix) if mix else None, evdev_level=self.output.last_sent,
                     uploads=self.output.writes, deduplicated=self.deduplicated,
+                    rate_limited=self.rate_limited,
                     plays=self.output.play_requests, renewals=self.output.renewals,
                     accepted=self.accepted, rejected=self.rejected, safety_events=self.events,
                     latency_ns=self.latency_ns, max_latency_ns=self.max_latency_ns,

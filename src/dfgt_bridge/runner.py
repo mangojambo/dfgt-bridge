@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Runner G29 passivo. Somente entrada física O_RDONLY e saída FFB mock."""
+"""Runner G29 passivo por padrão; saída EVDEV supervisionada exige --enable-ffb."""
 import argparse
 from contextlib import ExitStack
 import json
@@ -53,7 +53,7 @@ def diagnostic(session, runtime, elapsed, previous_events):
 
 
 def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
-        selector_factory=selectors.DefaultSelector, stop=None):
+        selector_factory=selectors.DefaultSelector, stop=None, physical_factory=None):
     """Factories injetáveis para testes offline. Não há factory de backend."""
     origin = time.monotonic_ns()
     stop = {'reason': None} if stop is None else stop
@@ -62,7 +62,15 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
     runtime = dict(max_processing_ns=0, slow_actions=0, missed_ticks=0,
                    input_resyncs=0, binding=[], report_classification={}, proprietary_commands={})
     classifications, proprietary_commands = Counter(), Counter()
-    writer = recorder = None
+    writer = recorder = physical = None
+    enable_ffb = getattr(args, 'enable_ffb', False)
+    physical_config = dict(strength=getattr(args, 'ffb_strength', 10),
+                           maximum=getattr(args, 'ffb_max_strength', 20),
+                           polarity=getattr(args, 'ffb_polarity', 1),
+                           session_s=getattr(args, 'ffb_seconds', 120))
+    trace_path = getattr(args, 'physical_trace', None)
+    if enable_ffb and not trace_path and args.capture:
+        trace_path = args.capture + '.ffb.jsonl.gz'
     complete, failure = False, None
     try:
         # Recursos externos são fechados mesmo se captura/setup/renderer falhar.
@@ -76,6 +84,9 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                                 proton=args.proton, hid_route=args.hid_route, scenario=args.scenario,
                                 source_id=[0x046d, 0xc29a], input_clock='CLOCK_MONOTONIC',
                                 session_origin='live_passive', physical_output='unavailable')
+                if enable_ffb:
+                    metadata.update(session_origin='supervised_evdev', physical_output='opt_in_evdev',
+                                    physical_config=physical_config, physical_trace=trace_path)
                 writer = CaptureWriter(args.capture, metadata)
                 stack.callback(writer.close)
             virtual = stack.enter_context(virtual_factory())
@@ -86,10 +97,23 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
             console = b''
             if sys.stdin.isatty():
                 selector.register(sys.stdin.fileno(), selectors.EVENT_READ, 'console')
+            if enable_ffb:
+                if physical_factory is None:
+                    from .physical_worker import PhysicalClient
+                    physical_factory = PhysicalClient
+                physical = stack.enter_context(physical_factory(
+                    args.source, enable_ffb=True, config=physical_config,
+                    keyboard_path=getattr(args, 'keyboard_event', None), trace_path=trace_path))
 
             def dispatch(kind, data, stamp=None):
                 started = time.monotonic_ns()
                 value = recorder.dispatch(kind, data, started if stamp is None else stamp)
+                if physical:
+                    if kind in ('input', 'uhid', 'tick'):
+                        physical.publish(value, session)
+                    elif kind == 'close':
+                        physical.close()
+                    runtime['physical'] = physical.diagnostic()
                 if kind == 'uhid':
                     classification = classify_uhid_result(value)
                     classifications[classification['category']] += 1
@@ -108,15 +132,21 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                 runtime['slow_actions'] += int(duration > 10_000_000)
                 return value
 
-            print('G29 046d:c24f PASSIVO; DFGT somente leitura; saída FFB exclusivamente mock.', flush=True)
+            print('G29 046d:c24f; ' + ('FFB EVDEV SUPERVISIONADO explicitamente habilitado.' if physical else
+                  'PASSIVO; DFGT somente leitura; saída FFB exclusivamente mock.'), flush=True)
             print(f'Acelerador ABS_Y → HID {args.gas_axis.upper()} (invertido={args.invert_gas}); '
                   'freio ABS_Z → HID Rz; direção ABS_X → HID X16.', flush=True)
             print('Console: race | menu | init | strength 0..60 | summary | quit. Ctrl+C encerra.', flush=True)
+            if physical:
+                print('FFB: ffb-stop | ffb-arm | ffb-strength 0..máximo | ffb-status. '
+                      'strength continua controlando somente a simulação.', flush=True)
             dispatch('input', {'state': wheel.state()})
             next_tick = time.monotonic_ns()
             last_summary = next_tick
             previous_events = 0
             while stop['reason'] is None and not session.core.closed:
+                if physical:
+                    physical.service()
                 for key, _ in selector.select(.01):
                     if key.data == 'uhid':
                         # Não drenar infinitamente: dar oportunidade a input/tick.
@@ -154,6 +184,15 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                                 stop['reason'] = 'operator_quit'
                             elif words == ['summary']:
                                 print(json.dumps(session.summary(), sort_keys=True), flush=True)
+                            elif physical and words == ['ffb-stop']:
+                                physical.command('stop', dict(reason='terminal_emergency', latch=True))
+                            elif physical and words == ['ffb-arm']:
+                                physical.command('arm', dict(requested_ns=time.monotonic_ns()))
+                            elif physical and words == ['ffb-status']:
+                                print(json.dumps(physical.diagnostic(), sort_keys=True), flush=True)
+                            elif (physical and len(words) == 2 and words[0] == 'ffb-strength'
+                                  and words[1].isdigit() and 0 <= int(words[1]) <= physical_config['maximum']):
+                                physical.command('strength', dict(percent=int(words[1])))
                             elif len(words) == 2 and words[0] == 'strength' and words[1].isdigit() and 0 <= int(words[1]) <= 60:
                                 dispatch('strength', {'percent': int(words[1])})
                             else:
@@ -197,6 +236,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', default=SOURCE)
     parser.add_argument('--capture', metavar='CAPTURA.jsonl')
+    parser.add_argument('--enable-ffb', action='store_true', help='Autoriza saída física DFGT supervisionada')
+    parser.add_argument('--ffb-strength', type=int, choices=range(0, 11), default=10, metavar='0..10')
+    parser.add_argument('--ffb-max-strength', type=int, choices=range(10, 31), default=20, metavar='10..30')
+    parser.add_argument('--ffb-polarity', type=int, choices=(-1, 1), default=1)
+    parser.add_argument('--ffb-seconds', type=int, choices=range(30, 241), default=120, metavar='30..240')
+    parser.add_argument('--keyboard-event', help='Teclado evdev explícito; somente com --enable-ffb')
+    parser.add_argument('--physical-trace', help='Trace da política física (replay só offline)')
     parser.add_argument('--gas-axis', choices=('z', 'y', 'both'), default='y',
                         help='Eixo virtual do acelerador: y corresponde à v0.8 usada no DiRT 5 (padrão)')
     parser.add_argument('--invert-gas', action='store_true')

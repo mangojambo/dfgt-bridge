@@ -85,9 +85,15 @@ def main(argv=None):
     parser.add_argument('capture')
     parser.add_argument('--verify-compatible', action='store_true',
                         help='Aceita fontes diferentes somente se todos os resultados semânticos coincidirem')
+    parser.add_argument('--physical-trace', help='Confere também o trace supervisionado em mock, correlacionado ao núcleo')
     args = parser.parse_args(argv)
     try:
         result = replay(args.capture, verify_compatible=args.verify_compatible)
+        if args.physical_trace:
+            from .physical_replay import replay_physical
+            result['physical'] = replay_physical(args.physical_trace, core_capture=args.capture,
+                                                verify_compatible=args.verify_compatible, _core_complete=result['complete'])
+            result['complete'] = result['complete'] and result['physical']['complete']
     except (ValueError, KeyError, TypeError, OSError, EOFError) as exc:
         print('Replay inválido: ' + str(exc), file=sys.stderr)
         return 1

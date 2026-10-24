@@ -30,6 +30,7 @@ class PIDTransport:
         self.last_error = None
         self.closed = False
         self.close_terminates = close_terminates
+        self.input_report = None
 
     def close(self):
         self.closed = True
@@ -82,6 +83,8 @@ class PIDTransport:
             data = self.engine.get_report(number)
         elif rtype == UHID_INPUT_REPORT and number == 0x50:
             data = self.engine.state_report()
+        elif rtype == UHID_INPUT_REPORT and number == 1 and self.input_report is not None:
+            data = self.input_report()
         else:
             raise ReportError('report_type_not_readable', errno.EOPNOTSUPP)
         self.counts['reads'] += 1

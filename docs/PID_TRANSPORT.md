@@ -73,3 +73,13 @@ O mock mantém um slot e histórico limitado a 4096 ações, com contador de des
 `OfflineSession` processa estado e renderiza a composição após cada evento, além dos ticks explícitos. Gerencia fechamento idempotente e cleanup em exceções; não suprime a exceção. Os testes incluem bloqueio de backend não mock, consumidores encerrados, erros de renderização, alto volume, múltiplos efeitos e os cinco CSVs reais. O núcleo é serializado por um chamador; não é uma API concorrente de múltiplas threads.
 
 Limites de escopo: não há Custom, dados de força personalizados, gatilhos de botão ou adaptação de playback a Sample Period. Os campos de gatilho/amostragem são aceitos dentro dos limites declarados, mas a reprodução atual começa por Start explícito e segue os ticks do chamador. O descritor Ramp unsigned também continua limitando rampas signed. Esses recursos não faziam parte das seis divergências e exigirão decisão se aparecerem na captura real.
+
+## Extensões para a sessão passiva
+
+O contrato acima permanece como padrão de `OfflineSession`. A integração passiva usa `close_terminates=False`: CLOSE limpa pool, flags e caches e para a saída mock imediatamente, mantendo o UHID disponível para um OPEN posterior. STOP encerra a sessão. Isso segue a distinção entre abertura de leitores e destruição do dispositivo na [documentação UHID do kernel](https://docs.kernel.org/hid/uhid.html). Não se reutilizam efeitos de probes depois de CLOSE.
+
+O transporte aceita um callback opcional `input_report` para GET Input `0x01`, respondendo com o último relatório de controles. A sessão passiva também envia Input `0x50` quando o estado PID muda, depois das respostas síncronas. Não altera nenhum byte do descritor nem dos relatórios `0x01`. Esse novo tráfego de estado precisa ser observado no Proton real.
+
+Somente `MockBackend` permite `test_limit_s=None`. A sessão passiva escolhe essa opção para simular uma corrida completa; a duração dos efeitos e o deadline individual de 160 ms continuam ativos. Outras instâncias conservam o limite global padrão de 120 s e backends diferentes de mock não podem desativá-lo. Essa política não autoriza nem prepara uma sessão física ilimitada.
+
+`PassiveSession` injeta o último MotionState amostrado na entrada em todos os eventos e ticks; após 250 ms sem amostra as derivadas ficam em zero. A entrada real solicita `CLOCK_MONOTONIC` somente para seu próprio fd via EVIOCSCLOCKID ([UAPI input](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h)); não muda relógio global, ranges, drivers ou força.

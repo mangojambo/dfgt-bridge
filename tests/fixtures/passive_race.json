@@ -1,0 +1,408 @@
+{
+  "provenance": "SYNTHETIC: offline race lifecycle vector, not captured from DiRT 5",
+  "version": 1,
+  "steps": [
+    {
+      "ms": 0,
+      "action": "input",
+      "data": {
+        "state": [
+          8192,
+          255,
+          255,
+          0,
+          0,
+          []
+        ]
+      }
+    },
+    {
+      "ms": 1,
+      "action": "uhid",
+      "data": {
+        "raw_hex": "02000000"
+      }
+    },
+    {
+      "ms": 2,
+      "action": "get",
+      "data": {
+        "number": 87,
+        "request_id": 1,
+        "rtype": 0
+      }
+    },
+    {
+      "ms": 3,
+      "action": "pid",
+      "data": {
+        "packet_hex": "54010000",
+        "via": "set",
+        "request_id": 2,
+        "rtype": 0
+      }
+    },
+    {
+      "ms": 4,
+      "action": "get",
+      "data": {
+        "number": 86,
+        "request_id": 3,
+        "rtype": 0
+      }
+    },
+    {
+      "ms": 5,
+      "action": "pid",
+      "data": {
+        "packet_hex": "510101ffff00000000000064ff0428230000",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 6,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5501803e",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 7,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5a010101",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 30,
+      "action": "mark",
+      "data": {
+        "phase": "game_operator_marked"
+      }
+    },
+    {
+      "ms": 40,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 45,
+      "action": "pid",
+      "data": {
+        "packet_hex": "54090000",
+        "via": "set",
+        "request_id": 4,
+        "rtype": 0
+      }
+    },
+    {
+      "ms": 46,
+      "action": "pid",
+      "data": {
+        "packet_hex": "510209ffff00000000000064ff0428230000",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 47,
+      "action": "pid",
+      "data": {
+        "packet_hex": "530200a00f803e803efffffffff401",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 48,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5a020101",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 49,
+      "action": "pid",
+      "data": {
+        "packet_hex": "54050000",
+        "via": "set",
+        "request_id": 5,
+        "rtype": 0
+      }
+    },
+    {
+      "ms": 50,
+      "action": "pid",
+      "data": {
+        "packet_hex": "510305e80300000000000064ff0428230000",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 51,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5d03a00f000000006400",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 52,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5a0301ff",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 60,
+      "action": "input",
+      "data": {
+        "state": [
+          12000,
+          80,
+          255,
+          1,
+          -1,
+          [
+            288,
+            704
+          ]
+        ]
+      }
+    },
+    {
+      "ms": 100,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 120,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5005",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5000,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 5100,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5006",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5140,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 5200,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5a010101",
+        "via": "set",
+        "request_id": 6,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5201,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5a010101",
+        "via": "set",
+        "request_id": 6,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5230,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 5240,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5980",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5280,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 5300,
+      "action": "strength",
+      "data": {
+        "percent": 5
+      }
+    },
+    {
+      "ms": 5340,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 5400,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5002",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5430,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 5500,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5001",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 5530,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 10000,
+      "action": "input",
+      "data": {
+        "state": [
+          4000,
+          50,
+          180,
+          0,
+          0,
+          []
+        ]
+      }
+    },
+    {
+      "ms": 10040,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 10050,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5b02",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 10051,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5b03",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 600000,
+      "action": "tick",
+      "data": {}
+    },
+    {
+      "ms": 600030,
+      "action": "get",
+      "data": {
+        "number": 80,
+        "request_id": 7,
+        "rtype": 2
+      }
+    },
+    {
+      "ms": 600040,
+      "action": "mark",
+      "data": {
+        "phase": "menu_operator_marked"
+      }
+    },
+    {
+      "ms": 600050,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5003",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 600051,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5b01",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 600052,
+      "action": "pid",
+      "data": {
+        "packet_hex": "5004",
+        "via": "output",
+        "request_id": null,
+        "rtype": 1
+      }
+    },
+    {
+      "ms": 600060,
+      "action": "close",
+      "data": {
+        "reason": "synthetic_race_end"
+      }
+    }
+  ]
+}

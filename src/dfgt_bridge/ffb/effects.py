@@ -6,7 +6,9 @@ import math
 import struct
 import time
 
-from .renderer import ANGLE_MAX, MotionEstimator, condition_force, effect_projection
+from .renderer import (ANGLE_MAX, MotionEstimator, condition_force,
+                       effect_projection, envelope_magnitude,
+                       enveloped_constant, periodic_wave, ramp_level)
 
 
 class PIDPassive:
@@ -171,8 +173,12 @@ class PIDSteeringBridge(PIDPassive):
             item['axes_enabled'] = packet[13] & 3
             item['direction_enabled'] = bool(packet[13] & 4)
         elif op == 0x52 and len(packet) >= 10:
+            values = struct.unpack_from('<HHHH', packet, 2)
+            if any(value > 32767 for value in values):
+                self.ignored['invalid_envelope'] += 1
+                return
             (item['attack_level'], item['fade_level'], item['attack_time'],
-             item['fade_time']) = struct.unpack_from('<HHHH', packet, 2)
+             item['fade_time']) = values
         elif op == 0x53 and len(packet) >= 15 and item['kind'] in (9, 10, 11, 12):
             axis = packet[2]
             if axis == 0:
@@ -189,8 +195,12 @@ class PIDSteeringBridge(PIDPassive):
             item['ramp_start'] = round(packet[2] * 32767 / 255)
             item['ramp_end'] = round(packet[3] * 32767 / 255)
         elif op == 0x5d and len(packet) >= 10 and item['kind'] in (4, 5, 6, 7, 8):
+            values = struct.unpack_from('<HhHH', packet, 2)
+            if values[0] > 32767 or values[2] > ANGLE_MAX or values[3] > 32767:
+                self.ignored['invalid_periodic'] += 1
+                return
             (item['periodic_magnitude'], item['periodic_offset'],
-             item['periodic_phase'], item['period_ms']) = struct.unpack_from('<HhHH', packet, 2)
+             item['periodic_phase'], item['period_ms']) = values
         elif op == 0x5a and len(packet) >= 4:
             effect_op = packet[2]
             if effect_op in (1, 2):
@@ -210,21 +220,6 @@ class PIDSteeringBridge(PIDPassive):
             self.ignored[f'unsupported_report_0x{op:02x}'] += 1
         if item.get('running') and op in (0x51, 0x52, 0x53, 0x55, 0x58, 0x5d):
             self.last_command_time = now
-
-    def _envelope(self, item, elapsed):
-        # Approximate HID PID envelope; effect magnitude ramps during attack
-        # and fade. Lack of signed envelope fields precludes perfect parity.
-        factor = 1.0
-        attack_time = item['attack_time'] / 1000.0
-        fade_time = item['fade_time'] / 1000.0
-        if attack_time > 0 and elapsed < attack_time:
-            t = max(0.0, elapsed / attack_time)
-            factor *= item['attack_level']/32767.0 * (1-t) + t
-        duration = (item['duration_ms'] or 0) / 1000.0
-        if duration > 0 and fade_time > 0 and elapsed > max(0.0, duration - fade_time):
-            t = min(1.0, (elapsed - (duration - fade_time))/fade_time)
-            factor *= (1-t) + item['fade_level']/32767.0*t
-        return max(0.0, min(1.0, factor))
 
     def components(self, position_raw=8192, *, motion=None):
         now = self.clock()
@@ -250,34 +245,21 @@ class PIDSteeringBridge(PIDPassive):
             if duration_ms is not None and elapsed >= duration:
                 item['running'] = False
                 continue
-            gain = item['gain'] * self._envelope(item, elapsed)
+            gain = item['gain']
             force = 0.0
             family = None
             if kind == 1:
-                family, force = 'constant', item['level'] * gain
+                family, force = 'constant', enveloped_constant(item['level'], item, elapsed) * gain
             elif kind == 2:
-                # Approximation: direction/ramp sign not encoded in ramp bytes.
-                if duration > 0:
-                    portion = min(1.0, elapsed/duration)
-                else:
-                    portion = 0.0
                 family = 'ramp'
-                force = (item['ramp_start'] * (1-portion) + item['ramp_end'] * portion) * gain
+                force = ramp_level(item, elapsed) * gain
             elif kind in (4, 5, 6, 7, 8) and item['period_ms'] >= 1:
-                cycles = elapsed / (item['period_ms'] / 1000.0) + item['periodic_phase']/36000.0
-                frac = cycles % 1.0
-                if kind == 4:
-                    waveform = 1.0 if frac < .5 else -1.0
-                elif kind == 5:
-                    waveform = math.sin(2*math.pi*frac)
-                elif kind == 6:
-                    waveform = (2/math.pi)*math.asin(math.sin(2*math.pi*frac))
-                elif kind == 7:
-                    waveform = 2*frac - 1
-                else:
-                    waveform = 1 - 2*frac
+                period = item['period_ms'] / 1000.0
+                frac = ((elapsed % period) / period + item['periodic_phase']/36000.0) % 1.0
+                waveform = periodic_wave(kind, frac)
                 family = 'periodic'
-                force = (item['periodic_offset'] + item['periodic_magnitude'] * waveform) * gain
+                magnitude = envelope_magnitude(item['periodic_magnitude'], item, elapsed)
+                force = (item['periodic_offset'] + magnitude * waveform) * gain
             elif kind in (9, 10, 11, 12) and item['condition_axis'] == 0:
                 family = PID_EFFECT_NAMES[kind]
                 force = condition_force(item, motion,

@@ -125,3 +125,73 @@ def condition_force(effect, motion, *, velocity_reference=2.0,
     response = coefficient * (math.copysign(1.0, distance) if kind == 12 else distance)
     response = max(-saturation, min(saturation, response))
     return -response * p * FORCE_SCALE
+
+
+def envelope_times(effect):
+    # Mantém o domínio inteiro do relatório até a razão de interpolação.
+    # Evita subtrações como 1.0-.2-.2 desviarem o arredondamento em 1 LSB.
+    attack = effect['attack_time']
+    duration = effect['duration_ms']
+    fade = effect['fade_time'] if duration is not None else 0
+    # PID não fornece uma regra única de sobreposição. Ajustamos as duas
+    # transições proporcionalmente para uma curva contínua dentro da duração.
+    if duration is not None and attack + fade > duration:
+        ratio = duration / (attack + fade)
+        attack, fade = attack * ratio, fade * ratio
+    return attack, fade, duration
+
+
+def envelope_magnitude(magnitude, effect, elapsed):
+    """Níveis de ataque/fade são amplitudes absolutas, não fatores de ganho."""
+    attack, fade, duration = envelope_times(effect)
+    elapsed *= 1000
+    if attack > 0 and elapsed < attack:
+        fraction = elapsed / attack
+        return effect['attack_level'] * (1-fraction) + magnitude * fraction
+    if fade > 0 and elapsed >= duration-fade:
+        fraction = min(1.0, (elapsed - (duration-fade)) / fade)
+        return magnitude * (1-fraction) + effect['fade_level'] * fraction
+    return magnitude
+
+
+def enveloped_constant(level, effect, elapsed):
+    # abs() representa a amplitude do envelope, jamais corrige coeficientes.
+    sign = -1 if level < 0 else 1
+    return sign * envelope_magnitude(abs(level), effect, elapsed)
+
+
+def ramp_level(effect, elapsed):
+    attack, fade, duration = envelope_times(effect)
+    start, end = effect['ramp_start'], effect['ramp_end']
+    if duration is None:
+        return enveloped_constant(start, effect, elapsed)
+    elapsed *= 1000
+    sustain = max(0.0, duration-attack-fade)
+    # Sem intervalo de sustain, usa um único ponto de encontro, sem salto
+    # entre dois níveis incompatíveis. É política para envelope sobreposto.
+    if sustain <= 1e-12:
+        meeting = start + (end-start) * (attack/duration if duration else 0)
+        start = end = meeting
+    if attack > 0 and elapsed < attack:
+        fraction = elapsed / attack
+        return effect['attack_level'] * (1-fraction) + start * fraction
+    if fade > 0 and elapsed >= duration-fade:
+        fraction = min(1.0, (elapsed - (duration-fade))/fade)
+        return end * (1-fraction) + effect['fade_level'] * fraction
+    fraction = min(1.0, max(0.0, (elapsed-attack)/sustain)) if sustain else 0.0
+    return start * (1-fraction) + end * fraction
+
+
+def periodic_wave(kind, fraction):
+    fraction %= 1.0
+    if kind == 4:
+        return 1.0 if fraction < .5 else -1.0
+    if kind == 5:
+        return math.sin(2*math.pi*fraction)
+    if kind == 6:
+        return 4*abs(fraction-.5)-1
+    if kind == 7:
+        return 2*fraction-1
+    if kind == 8:
+        return 1-2*fraction
+    raise ValueError('Forma de onda PID desconhecida')

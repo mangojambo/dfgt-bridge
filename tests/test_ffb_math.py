@@ -5,7 +5,8 @@ import unittest
 
 from test_ffb_audit import M
 from dfgt_bridge.ffb.renderer import (FORCE_SCALE, MotionEstimator, MotionState,
-                                      condition_force, direction_x, signed_unit)
+                                      condition_force, direction_x, periodic_wave,
+                                      signed_unit)
 
 
 class MathVectors(unittest.TestCase):
@@ -240,6 +241,120 @@ class MotionTests(unittest.TestCase):
         estimator.sample(0, 1)
         with self.assertRaises(ValueError):
             estimator.sample(0, .5)
+
+
+class EnvelopeTests(MathVectors):
+    def envelope(self, block, attack=8000, fade=4000, attack_ms=100, fade_ms=200):
+        self.bridge.seen(bytes((0x52, block)) + struct.pack(
+            '<HHHH', attack, fade, attack_ms, fade_ms))
+
+    def test_absolute_attack_sustain_fade_with_exact_checkpoints(self):
+        block = self.constant(16000, duration=1000)
+        self.envelope(block)
+        for instant, expected in ((0, 8000), (.05, 12000), (.1, 16000),
+                                  (.8, 16000), (.9, 10000), (1, 0)):
+            self.now = instant
+            self.assertEqual(self.bridge.raw_level(), expected)
+
+    def test_negative_level_preserves_sign_through_envelope(self):
+        block = self.constant(-16000, duration=1000)
+        self.envelope(block)
+        self.assertEqual(self.bridge.raw_level(), -8000)
+        self.now = .9
+        self.assertEqual(self.bridge.raw_level(), -10000)
+
+    def test_envelope_above_sustain_is_not_truncated_to_a_gain(self):
+        block = self.constant(4000, duration=1000)
+        self.envelope(block, attack=12000, fade=16000)
+        self.assertEqual(self.bridge.raw_level(), 12000)
+        self.now = .05
+        self.assertEqual(self.bridge.raw_level(), 8000)
+        self.now = .9
+        self.assertEqual(self.bridge.raw_level(), 10000)
+
+    def test_periodic_offset_is_not_scaled_by_the_envelope(self):
+        block = self.create(5)
+        self.bridge.seen(bytes((0x5d, block)) + struct.pack('<HhHH', 16000, 4000, 9000, 100))
+        self.envelope(block, attack=8000)
+        self.assertEqual(self.bridge.raw_level(), 12000)
+        self.now = .1
+        self.assertEqual(self.bridge.raw_level(), 20000)
+
+    def test_effect_and_device_gain_are_applied_after_absolute_envelope(self):
+        block = self.constant(16000, gain=50)
+        self.envelope(block, attack=8000)
+        self.bridge.seen(bytes((0x59, 128)))
+        self.assertEqual(self.bridge.raw_level(), round(8000 * .5 * 128/255))
+
+    def test_start_delay_precedes_attack_and_does_not_eat_its_time(self):
+        block = self.constant(16000, duration=1000, delay=500)
+        self.envelope(block)
+        self.now = .4
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.now = .5
+        self.assertEqual(self.bridge.raw_level(), 8000)
+        self.now = .55
+        self.assertEqual(self.bridge.raw_level(), 12000)
+
+    def test_infinite_effect_has_attack_and_no_automatic_fade(self):
+        block = self.constant(16000)
+        self.envelope(block, attack=8000, fade=0)
+        self.now = .05
+        self.assertEqual(self.bridge.raw_level(), 12000)
+        self.now = 1000
+        self.assertEqual(self.bridge.raw_level(), 16000)
+
+    def test_overlap_fits_continuously_without_multiplying_two_envelopes(self):
+        block = self.constant(16000, duration=100)
+        self.envelope(block, attack=0, fade=0, attack_ms=200, fade_ms=200)
+        for instant, expected in ((.025, 8000), (.05, 16000), (.075, 8000), (.1, 0)):
+            self.now = instant
+            self.assertEqual(self.bridge.raw_level(), expected)
+
+    def test_zero_times_bypass_attack_and_fade_levels(self):
+        block = self.constant(16000, duration=1000)
+        self.envelope(block, attack=0, fade=0, attack_ms=0, fade_ms=0)
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.now = .999
+        self.assertEqual(self.bridge.raw_level(), 16000)
+
+    def test_ramp_reserves_attack_and_fade_intervals(self):
+        block = self.create(2, duration=1000)
+        self.bridge.seen(bytes((0x58, block, 0, 255)))
+        self.envelope(block, attack=0, fade=0, attack_ms=200, fade_ms=200)
+        self.now = .5
+        self.assertEqual(self.bridge.raw_level(), round(32767/2))
+        self.now = .8
+        self.assertEqual(self.bridge.raw_level(), 32767)
+        self.now = .9
+        self.assertEqual(self.bridge.raw_level(), round(32767/2))
+
+    def test_ramp_overlapping_envelope_has_continuous_meeting_point(self):
+        block = self.create(2, duration=100)
+        self.bridge.seen(bytes((0x58, block, 0, 255)))
+        self.envelope(block, attack=0, fade=0, attack_ms=200, fade_ms=200)
+        self.now = .05
+        self.assertEqual(self.bridge.raw_level(), round(32767/2))
+        self.now = .050001
+        self.assertLess(abs(self.bridge.raw_level() - round(32767/2)), 2)
+
+    def test_out_of_range_envelope_and_periodic_leave_previous_state_intact(self):
+        block = self.constant()
+        self.envelope(block, attack=65535)
+        self.assertEqual(self.bridge.effects[block]['attack_time'], 0)
+        self.assertEqual(self.bridge.ignored['invalid_envelope'], 1)
+        block = self.create(5)
+        self.bridge.seen(bytes((0x5d, block)) + struct.pack('<HhHH', 65535, 0, 0, 100))
+        self.assertEqual(self.bridge.effects[block]['periodic_magnitude'], 0)
+        self.assertEqual(self.bridge.ignored['invalid_periodic'], 1)
+
+    def test_reference_waveforms_at_quarter_periods(self):
+        vectors = {4: (1, 1, -1, -1), 5: (0, 1, 0, -1),
+                   6: (1, 0, -1, 0), 7: (-1, -.5, 0, .5),
+                   8: (1, .5, 0, -.5)}
+        for kind, values in vectors.items():
+            for phase, expected in zip((0, .25, .5, .75), values):
+                self.assertAlmostEqual(periodic_wave(kind, phase), expected)
 
 
 if __name__ == '__main__':

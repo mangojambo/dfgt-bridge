@@ -254,7 +254,6 @@ class OfflineAudit(unittest.TestCase):
         self.start(block)
         self.assertEqual(self.bridge.effects[block]['started_at'], self.now)
 
-    @unittest.expectedFailure
     def test_gap_envelope_attack_level_is_absolute(self):
         block = self.constant(level=16384)
         self.bridge.seen(bytes((0x52, block)) + struct.pack('<HHHH', 8192, 0, 100, 0))

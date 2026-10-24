@@ -200,7 +200,6 @@ class OfflineAudit(unittest.TestCase):
         motor.close()
         self.assertIn(('erase', 7), dev.actions)
 
-    @unittest.expectedFailure
     def test_gap_infinite_effect_survives_host_silence(self):
         block = self.constant()
         self.effect(block)

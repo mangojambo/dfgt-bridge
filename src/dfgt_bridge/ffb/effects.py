@@ -97,7 +97,7 @@ class PIDSteeringBridge(PIDPassive):
                     sat_pos=0, sat_neg=0, deadband=0,
                     condition_axis=-1, periodic_magnitude=0,
                     periodic_offset=0, periodic_phase=0, period_ms=0,
-                    ramp_start=0, ramp_end=0, duration_ms=0,
+                    ramp_start=0, ramp_end=0, duration_ms=None,
                     start_delay_ms=0, direction=0,
                     attack_level=0, attack_time=0, fade_level=0,
                     fade_time=0, started_at=None)
@@ -159,7 +159,8 @@ class PIDSteeringBridge(PIDPassive):
         if op == 0x51 and len(packet) >= 18:
             item['gain'] = max(0.0, min(1.0, packet[11] / 100.0))
             duration = struct.unpack_from('<H', packet, 3)[0]
-            item['duration_ms'] = 0 if duration == 0xFFFF else duration
+            # PID 0xffff é infinito; zero é uma duração finita de zero ms.
+            item['duration_ms'] = None if duration == 0xFFFF else duration
             item['start_delay_ms'] = struct.unpack_from('<H', packet, 9)[0]
             item['direction'] = struct.unpack_from('<H', packet, 14)[0]
         elif op == 0x52 and len(packet) >= 10:
@@ -235,17 +236,19 @@ class PIDSteeringBridge(PIDPassive):
         if attack_time > 0 and elapsed < attack_time:
             t = max(0.0, elapsed / attack_time)
             factor *= item['attack_level']/32767.0 * (1-t) + t
-        duration = item['duration_ms'] / 1000.0
+        duration = (item['duration_ms'] or 0) / 1000.0
         if duration > 0 and fade_time > 0 and elapsed > max(0.0, duration - fade_time):
             t = min(1.0, (elapsed - (duration - fade_time))/fade_time)
             factor *= (1-t) + item['fade_level']/32767.0*t
         return max(0.0, min(1.0, factor))
 
-    def components(self, position_raw=8192, max_age_s=.2):
+    def components(self, position_raw=8192):
         now = self.clock()
         pos, velocity, acceleration = self._motion(position_raw, now)
         result = {key: 0.0 for key in OUTPUT_COMPONENTS}
-        if not self.armed or self.paused or now - self.last_command_time > max_age_s:
+        # Silêncio do host é legítimo: a vida é definida por Start/Stop,
+        # duração e estado PID. O timeout da saída pertence ao backend.
+        if not self.armed or self.paused:
             return result
         for item in self.effects.values():
             if not item['running']:
@@ -258,8 +261,10 @@ class PIDSteeringBridge(PIDPassive):
             if elapsed < delay:
                 continue
             elapsed -= delay
-            duration = item['duration_ms']/1000.0
-            if duration > 0 and elapsed > duration:
+            duration_ms = item['duration_ms']
+            duration = (duration_ms or 0)/1000.0
+            if duration_ms is not None and elapsed >= duration:
+                item['running'] = False
                 continue
             gain = item['gain'] * self._envelope(item, elapsed)
             force = 0.0
@@ -331,5 +336,5 @@ class PIDSteeringBridge(PIDPassive):
         if result['periodic']: self.periodic_active_ticks += 1
         return result
 
-    def raw_level(self, position_raw=8192, max_age_s=.2):
-        return max(-32767,min(32767,sum(self.components(position_raw,max_age_s).values())))
+    def raw_level(self, position_raw=8192):
+        return max(-32767,min(32767,sum(self.components(position_raw).values())))

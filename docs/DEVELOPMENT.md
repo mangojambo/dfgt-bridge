@@ -140,3 +140,24 @@ Estado: **241 testes passando, zero falhas esperadas e zero ignorados**, também
 | `8644190` | Replay entre versões com equivalência semântica integral obrigatória |
 
 Análise, índices individuais de todos os rejeitados, hashes, fórmulas de entrada e comando atualizado estão em [CAPTURE_COMPARISON_20261024.md](CAPTURE_COMPARISON_20261024.md). Próxima tarefa: o operador repetir o teste passivo em Y, marcar menu/corrida e conferir o acelerador no jogo. A ausência de Start em Damper/Friction explica seus componentes zero nas capturas; não constitui falha matemática. Backend físico continua fora desta etapa.
+
+## Integração EVDEV supervisionada implementada, sem ensaio de motor
+
+O operador confirmou o acelerador. Foram conferidas novamente, apenas por replay offline, as três capturas disponíveis: 35.723, 37.280 e 54.648 ações, todas completas, sem divergências e sem erros de entrega. A terceira (`dirt5-y-20261024-144639.jsonl.gz`, SHA-256 `b01a5916e56885cc134c30108760c6e358f9d60f00811afc9d0714580506b75d`) contém 20.501 quadros em Y, extremos 0..255 e zero divergências ABS_Y→HID Y. As capturas e referências não foram alteradas.
+
+Estado: **307 testes passando, zero falhas esperadas e zero ignorados**. São 66 casos novos sobre os 241 anteriores: ABI EVDEV fake, identificação e capacidades, ausência de writer no modo passivo, slew/teto/polaridade, watchdog, F9, perda de dispositivo, teclado, saída/reutilização do PID do jogo, IPC limitado, emergência e replay pareado. A suite passou com audit hook que impede abertura real de dispositivos. Nenhum motor ou subprocesso EVDEV real foi iniciado.
+
+| Commit | Entrega |
+|---|---|
+| `a03213c` | Backend EVDEV DFGT-only com opt-in, validação, único slot e cleanup |
+| `3f2c90b` | Política supervisionada: cálculo fresco, slew, latch e duração limitada |
+| `de8844a` | Teclas globais F7..F10 readonly, sem grab e com fallback de emergência |
+| `7ab5f65` | Processo separado, IPC com um pendente/último valor, diagnóstico e replay físico |
+| `8b815a7` | Supervisão da saída do jogo e invalidação de frames anteriores a Stop/zero |
+| `7fb741f` | Testes de integração, falhas, processo do jogo e correlação do trace físico |
+
+Novos módulos: `backends/evdev.py`, `supervised.py`, `physical_worker.py`, `physical_replay.py`, `game_monitor.py` e `input/global_keys.py`. `runner.py` ganhou flags e comandos opt-in; `replay.py`, verificação pareada. Em `ffb/safety.py`, somente uma opção de slew em unidades/s foi adicionada: seu padrão conserva o comportamento dos replays antigos. Descritor, fontes de entrada, renderer, mixer, decoder, referências e launchers permanecem inalterados.
+
+O perfil físico começa em 10%, usa teto padrão de 20% (configurável até 30%), watchdog independente de 100 ms, replay EVDEV máximo de 160 ms e duração supervisionada de 120 s por padrão. F9 nunca religa; requer `ffb-arm`, jogo ativo e cálculo posterior. A saída do DiRT5.exe é monitorada separadamente de UHID_CLOSE. A política física recebe componentes antes do teto mock, evitando aplicar o ganho duas vezes.
+
+Ver [SUPERVISED_FFB.md](SUPERVISED_FFB.md) para comandos e procedimento manual. Permanecem pendentes validação de polaridade mecânica, prazo real kernel/USB/firmware, captura global de teclado no jogo e exclusividade efetiva. O flock é cooperativo; FF_GAIN/AUTOCENTER são globais, ficam zero ao encerrar e não têm restauração de estado desconhecido. Não houve instalação de driver, modificação do SteamOS ou push. O próximo passo é o ensaio supervisionado manual a 5%, não um teste automático de motor.

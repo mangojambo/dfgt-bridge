@@ -1,6 +1,6 @@
 # Runner passivo e captura reproduzível
 
-Implementado em `fix/ffb-core`. Duas capturas reais fornecidas pelo operador foram analisadas offline em [CAPTURE_COMPARISON_20261024.md](CAPTURE_COMPARISON_20261024.md). O runner cria o G29 virtual e lê o DFGT quando iniciado pelo operador. Toda força calculada termina exclusivamente em `MockBackend`; não existe opção de backend físico. Os launchers históricos não foram redirecionados.
+Implementado em `fix/ffb-core`. Duas capturas reais fornecidas pelo operador foram analisadas offline em [CAPTURE_COMPARISON_20261024.md](CAPTURE_COMPARISON_20261024.md). O runner cria o G29 virtual e lê o DFGT quando iniciado pelo operador. **Sem `--enable-ffb`, toda força termina exclusivamente em MockBackend** e nenhum processo/fd de saída física é criado. A opção física posterior está documentada separadamente em [SUPERVISED_FFB.md](SUPERVISED_FFB.md), ainda sem ensaio de motor. Os launchers históricos não foram redirecionados.
 
 ## Execução no SteamOS
 
@@ -13,7 +13,7 @@ cd /home/deck/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py
 ```
 
-O único fd do DFGT é aberto com `O_RDONLY`. As consultas são EVIOCGID, EVIOCGABS, EVIOCGKEY e a seleção de CLOCK_MONOTONIC **para esse leitor** via EVIOCSCLOCKID. Não há EVIOCSFF, EVIOCRMFF, EV_FF, grab, escrita USB, autocenter, ajuste de rotação, modprobe ou bind. A escrita de relatórios ocorre somente no fd separado de `/dev/uhid`. [UAPI input](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h), [contrato UHID](https://docs.kernel.org/hid/uhid.html).
+No modo passivo, o único fd do DFGT é aberto com `O_RDONLY`. As consultas são EVIOCGID, EVIOCGABS, EVIOCGKEY e a seleção de CLOCK_MONOTONIC **para esse leitor** via EVIOCSCLOCKID. Não há EVIOCSFF, EVIOCRMFF, EV_FF, grab, escrita USB, autocenter, ajuste de rotação, modprobe ou bind. A escrita de relatórios ocorre somente no fd separado de `/dev/uhid`. [UAPI input](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h), [contrato UHID](https://docs.kernel.org/hid/uhid.html).
 
 Capturar uma corrida completa, incluindo inicialização e saída:
 

@@ -1,5 +1,9 @@
 # Plano de conexão à baseline v0.8
 
+## Estado após a implementação EVDEV supervisionada
+
+O operador confirmou o acelerador em Y. A captura real corrigida e as duas anteriores passaram em replay completo. O backend EVDEV e a supervisão física foram implementados por opt-in, sem iniciar motor ou alterar drivers. O runner permanece passivo por padrão; `--enable-ffb` cria o processo separado de saída e teclas. Detalhes, limitações de exclusividade/temporização e próximo ensaio manual estão em [SUPERVISED_FFB.md](SUPERVISED_FFB.md). A descrição das etapas anteriores abaixo é histórica; a validação física continua pendente.
+
 ## Estado após a implementação passiva
 
 A fachada e o runner passivo deste plano foram implementados em arquivos novos, com testes offline e sem execução em dispositivos. `scripts/run-passive.py` usa a entrada readonly e somente MockBackend; `scripts/replay-capture.py` confere capturas em memória. As referências e launchers continuam intactos. Consulte [PASSIVE_RUNNER.md](PASSIVE_RUNNER.md) para os comandos preparados, schema de captura, limites e critérios pendentes de validação real.

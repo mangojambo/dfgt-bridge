@@ -2,6 +2,8 @@
 
 O acelerador em Y foi confirmado pelo operador. Esta etapa adiciona uma opção física ao runner, conservando o caminho passivo como padrão e sem modificar descritor, entrada, referências ou launchers. Durante o desenvolvimento foram usados somente mocks, relógios simulados e replay; nenhum motor foi acionado, driver instalado ou configuração do SteamOS alterada.
 
+A inicialização agora exige associação PIDFF, entrada EVDEV virtual e FF_CONSTANT antes de mostrar `[PRONTO]` ou criar o processo de saída física. A associação automática, o módulo existente e os limites da regra dinâmica estão em [PID_BINDING.md](PID_BINDING.md). O próximo teste deve confirmar reconhecimento em modo passivo antes de retomar o ensaio de motor.
+
 ## Comandos preparados
 
 Modo passivo, com o mesmo comportamento anterior:
@@ -43,7 +45,7 @@ Stop/Reset/Disable/Pause/Free/CLOSE e transição para soma zero também avança
 
 Só utiliza EVIOCSFF de tipo FF_CONSTANT, play/stop do próprio ID, FF_GAIN, FF_AUTOCENTER e EVIOCRMFF. Um único ID é reutilizado; mudanças de nível atualizam esse ID e níveis idênticos não causam upload repetido. Play/renovação são separados de upload. Não há chamadas USB/hidraw nem bytes Logitech proprietários enviados pelo bridge. Naturalmente, o driver Linux traduz os pedidos EVDEV para seu protocolo de hardware.
 
-Inicialização validada coloca ganho em zero e autocenter em zero. Um play autorizado coloca FF_GAIN em 65535; o nível Constant já está limitado pelo software. Stop corta ganho e para o slot. Cleanup tenta ganho zero, stop e erase, fechando o fd mesmo após desconexão/erro. Não restaura ganho/autocenter anteriores, pois a interface não oferece uma leitura confiável desses valores: **permanecem em zero ao encerrar**. Nada altera drivers, rotação, descritor, udev ou configuração SteamOS.
+Inicialização validada coloca ganho em zero e autocenter em zero. Um play autorizado coloca FF_GAIN em 65535; o nível Constant já está limitado pelo software. Stop corta ganho e para o slot. Cleanup tenta ganho zero, stop e erase, fechando o fd mesmo após desconexão/erro. Não restaura ganho/autocenter anteriores, pois a interface não oferece uma leitura confiável desses valores: **permanecem em zero ao encerrar**. O backend físico não altera drivers, rotação, descritor, udev ou configuração SteamOS; a preparação transitória do driver virtual é separada e documentada em [PID_BINDING.md](PID_BINDING.md).
 
 Há flock cooperativo no fd. Isso evita outro bridge que respeite a mesma trava, mas **não impede Steam, Oversteer, hidraw ou outros escritores independentes**. FF_GAIN e FF_AUTOCENTER são propriedades globais do DFGT. O primeiro ensaio exige que não haja outro controlador de FFB físico ativo e que o jogo use o G29 virtual; o programa não modifica automaticamente essa seleção.
 
@@ -121,7 +123,7 @@ Com outra revisão dos fontes, adicionar `--verify-compatible`; divergências co
 
 ## Validação realizada e limitações
 
-**307 testes passando, zero falhas esperadas e zero ignorados**, com `scripts/test-offline.py` bloqueando opens reais de UHID/input/hidraw/USB. Cobrem ABI EVDEV fake, identidade/capacidades, único slot, intensidade, polaridade, slew, F9, zero, watchdog, comandos pendentes, processo do jogo, desconexão/exceções, teclado e replay pareado. Nenhum subprocesso EVDEV real ou ensaio de motor foi executado. Ganho/autocenter globais, exclusividade efetiva, USB, temporização kernel e teclas com o jogo em primeiro plano precisam de validação pelo operador.
+**346 testes passando, zero falhas esperadas e zero ignorados**, com `scripts/test-offline.py` bloqueando opens reais de UHID/input/hidraw/USB. Cobrem ABI EVDEV fake, identidade/capacidades, único slot, intensidade, polaridade, slew, F9, zero, watchdog, comandos pendentes, processo do jogo, desconexão/exceções, teclado e replay pareado. Nenhum subprocesso EVDEV real ou ensaio de motor foi executado. Ganho/autocenter globais, exclusividade efetiva, USB, temporização kernel e teclas com o jogo em primeiro plano precisam de validação pelo operador.
 
 As três capturas reais existentes passaram novamente em replay completo com equivalência semântica: 35.723, 37.280 e 54.648 ações. A terceira, `dirt5-y-20261024-144639.jsonl.gz`, contém 20.501 quadros com Y 0..255 e zero divergências entre ABS_Y e HID Y. Seu `mock_history_dropped=2216` refere-se ao histórico diagnóstico limitado a 4096 ações, não perda de comandos; a captura completa e seu replay permanecem íntegros. O relato de que o acelerador funcionou concorda com essa telemetria.
 
@@ -133,4 +135,4 @@ As três capturas reais existentes passaram novamente em replay completo com equ
 4. Se a polaridade estiver invertida, reiniciar um novo ensaio a 5% com `--ffb-polarity -1`, sem alterar coeficientes PID ou descritor. A polaridade mecânica correta ainda não foi medida nesta entrega.
 5. Depois de confirmar o sentido, testar F7, F8 até 10%, F9, permanência desligada, reativação explícita, Pause/Disable/Stop e saída do jogo. Verificar zero/erase no trace e ausência de força residual. Aumentar o teto de sessão somente após revisar esses resultados.
 
-Não executar automaticamente os scripts históricos de pulsos. O próximo passo é este ensaio supervisionado do operador, não instalar drivers ou trocar para comandos Logitech proprietários.
+Não executar automaticamente os scripts históricos de pulsos. Antes deste ensaio, confirmar a correção da associação em modo passivo conforme [PID_BINDING.md](PID_BINDING.md). Não instalar drivers ou trocar para comandos Logitech proprietários.

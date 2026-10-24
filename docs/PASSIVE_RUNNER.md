@@ -4,16 +4,16 @@ Implementado em `fix/ffb-core`. Duas capturas reais fornecidas pelo operador for
 
 ## Execução no SteamOS
 
-Python 3.10+ e o ambiente UHID/driver que já permitia a v0.8 são os pré-requisitos. Não é necessário instalar `evdev`. Não executar simultaneamente o runner novo e a baseline/experimentos.
+Python 3.10+, UHID e o módulo `hid-universal-pidff` já instalado são os pré-requisitos. O runner carrega esse módulo quando necessário e verifica a associação automaticamente; não instala drivers. Não é necessário instalar `evdev`. Não executar simultaneamente o runner novo e a baseline/experimentos nem conectar outro G29. Veja [PID_BINDING.md](PID_BINDING.md) para o alcance da regra dinâmica e o diagnóstico.
 
 Na raiz do projeto, iniciar somente o runner passivo:
 
 ```sh
 cd /home/deck/dfgt-bridge
-sudo /usr/bin/python3 -B scripts/run-passive.py
+sudo /usr/bin/python3 -B scripts/run-passive.py --identity g29 --auto-pidff --gas-axis y
 ```
 
-No modo passivo, o único fd do DFGT é aberto com `O_RDONLY`. As consultas são EVIOCGID, EVIOCGABS, EVIOCGKEY e a seleção de CLOCK_MONOTONIC **para esse leitor** via EVIOCSCLOCKID. Não há EVIOCSFF, EVIOCRMFF, EV_FF, grab, escrita USB, autocenter, ajuste de rotação, modprobe ou bind. A escrita de relatórios ocorre somente no fd separado de `/dev/uhid`. [UAPI input](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h), [contrato UHID](https://docs.kernel.org/hid/uhid.html).
+No modo passivo, o único fd do DFGT é aberto com `O_RDONLY`. As consultas são EVIOCGID, EVIOCGABS, EVIOCGKEY e a seleção de CLOCK_MONOTONIC **para esse leitor** via EVIOCSCLOCKID. Não há EVIOCSFF, EVIOCRMFF, EV_FF, grab, escrita USB, autocenter ou ajuste de rotação no DFGT. A escrita de relatórios ocorre no fd separado de `/dev/uhid`. A inicialização também prepara o driver do G29 virtual por `modprobe`/bind e, se necessário, `new_id` guardado; não modifica o driver físico. [UAPI input](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h), [contrato UHID](https://docs.kernel.org/hid/uhid.html).
 
 Capturar uma corrida completa, incluindo inicialização e saída:
 
@@ -28,7 +28,7 @@ sudo /usr/bin/python3 -B scripts/run-passive.py \
 
 O arquivo é criado exclusivamente, nunca sobrescrito. Se existir, a mensagem preserva o erro e sugere um nome alternativo disponível, sem criá-lo automaticamente. `.jsonl.gz` comprime em streaming sem remover bytes; `.jsonl` também funciona. Capturas completas podem ser grandes, especialmente sem gzip, e permanecem ignoradas em `captures/`. Evite redirecionar stdin se quiser marcar as fases pelo console.
 
-Depois de iniciar o runner, abrir o jogo usando a configuração já existente. No terminal do runner, os comandos são:
+Depois de receber `[PRONTO]` com PIDFF, EVDEV e FF_CONSTANT, abrir o jogo usando a configuração já existente. No terminal do runner, os comandos são:
 
 | Comando + Enter | Ação |
 |---|---|
@@ -45,7 +45,7 @@ UHID não fornece PID de processo nem uma etiqueta “DiRT 5”. Todos os relat�
 
 O diagnóstico periódico inclui associação de driver e capacidades FF virtuais lidas em sysfs, eventos/s, OUTPUT/SET/GET, efeitos por tipo, ativos/pausados/liberados, falhas do pool, rejeições brutas, classificação separada de comandos proprietários ignorados e falhas PID/transporte, componentes de força, resultante, clipping, atrasos e ressincronizações. Exibe também ABS_X/Y/Z físicos e X/Z/Rz/Y virtuais, eixo escolhido e inversão. Há uma linha por segundo e um resumo completo ao sair. `summary` é uma impressão adicional solicitada pelo operador.
 
-O runner **não corrige associação de driver**. A identidade G29 pode selecionar um driver Logitech em vez de um driver PID; a configuração que fazia a v0.8 reconhecer FFB precisa ser conferida na coleta. Ausência de tráfego PID ou driver inadequado não é sucesso. Os campos `binding` e `ff_capabilities` ajudam a diagnosticar isso, sem modificar SteamOS/udev/Steam.
+O runner restaura automaticamente a associação PIDFF omitida na primeira integração. `--auto-pidff` é opcional, pois esse é o padrão. Identifica exclusivamente seu UHID por PHYS, atende probes durante a associação e verifica driver/EVDEV/FF antes de informar prontidão. Erros e timeout (`--bind-timeout`, padrão 25 s) encerram com diagnóstico. O fallback `new_id` corresponde globalmente a G29 e permanece até descarregar o módulo/reiniciar; é recusado na presença de outro G29. Não há alteração persistente no SteamOS/udev/Steam. Detalhes: [PID_BINDING.md](PID_BINDING.md).
 
 ## Contrato de entrada e transporte
 
@@ -55,7 +55,7 @@ O runner **não corrige associação de driver**. A identidade G29 pode selecion
 - Timestamps de SYN_REPORT monotônicos alimentam o estimador; eventos FFB e ticks reutilizam a amostra. Derivadas expiram após 250 ms. Posição e relatórios de controles continuam sendo transmitidos. O alvo ABI de entrada é SteamOS Linux x86_64.
 - Somente `PIDTransport.handle()` aplica um evento. Não há respondedor legado paralelo. Retries com request ID equivalente são deduplicados; dois OUTPUT idênticos continuam sendo duas operações legítimas. Não existe correlação comprovável entre OUTPUT e SET_REPORT somente pelos bytes.
 - Respostas GET/SET preservam request ID, rtype e Report ID e precedem o registro em disco. GET Input `0x01` lê o último input; PID State `0x50` é emitido em transições. GET Input `0x50`, Feature `0x54/56/57` e Outputs usam os contratos em [PID_TRANSPORT.md](PID_TRANSPORT.md).
-- CLOSE limpa efeitos/caches e silencia o mock, mas permite novo OPEN; STOP termina a sessão. Erros, EOF e sinais tratados fecham entrada, mock e UHID. Fechar o fd UHID destrói o dispositivo mesmo se a escrita DESTROY falhar. SIGKILL não permite footer/cleanup Python; nenhum motor físico está conectado.
+- CLOSE limpa efeitos/caches e silencia o mock, mas permite novo OPEN. Durante a associação inicial, STOP também permite continuar a troca de driver; depois de `[PRONTO]`, STOP termina a sessão. Ações `binding` conservam essa distinção no replay. `resend_input` reenvia os controles após a associação sem criar amostra de movimento. Erros, EOF e sinais tratados fecham entrada, mock e UHID. Fechar o fd UHID destrói o dispositivo mesmo se a escrita DESTROY falhar. SIGKILL não permite footer/cleanup Python; nenhum motor físico está conectado no modo passivo.
 
 ## Captura JSONL v1
 
@@ -81,7 +81,7 @@ Cada linha é um objeto JSON, opcionalmente dentro de gzip. `schema=dfgt-bridge-
 
 Os bytes UHID brutos incluem header e padding recebidos, não só o payload PID. Dados curtos/malformados permanecem como chegaram. `packet_hex` não inventa bytes ausentes; eventual zero-extension pertence ao transporte e pode ser reproduzida a partir do evento bruto. O SHA-256 do estado inclui todos os parâmetros de efeito, mesmo quando só mudanças aparecem em `transitions`.
 
-Os buffers são limitados: 32 eventos UHID por passagem, 64 input_events por leitura, console de 1024 bytes, caches do transporte e histórico mock limitados. Não há thread, fila de forças ou recuperação de ticks antigos em rajadas. Captura é síncrona/bufferizada; armazenamento lento pode aumentar latência, que fica registrada. O ACK é enviado antes da serialização/escrita do registro. Uma escrita UHID parcial é fatal, sem reenviar a cauda ou reaplicar a operação. EAGAIN tem limite de 250 ms. Linha de captura possui limite de 2 MiB; não se trunca silenciosamente para obedecê-lo.
+Os buffers são limitados: 32 eventos UHID por passagem, 64 input_events por leitura, console de 1024 bytes, caches do transporte e histórico mock limitados. A única thread de associação faz a escrita sysfs bloqueante enquanto o loop responde UHID; não há fila de forças nem recuperação de ticks antigos em rajadas. Captura é síncrona/bufferizada; armazenamento lento pode aumentar latência, que fica registrada. O ACK é enviado antes da serialização/escrita do registro. Uma escrita UHID parcial é fatal, sem reenviar a cauda ou reaplicar a operação. EAGAIN tem limite de 250 ms. Linha de captura possui limite de 2 MiB; não se trunca silenciosamente para obedecê-lo.
 
 ## Replay e testes offline
 
@@ -100,7 +100,7 @@ A fixture `tests/fixtures/passive_race.json` é **sintética**: reproduz dez min
 
 | Item | Offline | Coleta real pendente |
 |---|---|---|
-| Descritor/identidade/criação UHID | Bytes iguais à v0.8 | Enumeração e driver associado |
+| Descritor/identidade/criação UHID | Descritor/serial iguais à v0.8; só PHYS recebe token | Enumeração e associação automática PIDFF |
 | Direção, acelerador, freio | Ranges, extremos e opções iguais | Calibração/seleção no jogo |
 | Botões e D-pad | Todos os bits e direções iguais | Mapeamento do jogo |
 | Menu FFB | Feature/pool/estado/respostas simulados | Reconhecimento pelo DiRT 5/Proton |

@@ -1,5 +1,7 @@
 # Plano de conexão à baseline v0.8
 
+A regressão de enumeração foi corrigida: a associação automática PIDFF omitida na refatoração foi restaurada com propriedade do nó e prontidão driver/EVDEV/FF. A saída física só inicia depois dessa validação. São 346 testes offline passando; nenhum bind real ou motor foi executado. A próxima tarefa é conferir reconhecimento no SteamOS em modo passivo. Consulte [PID_BINDING.md](PID_BINDING.md), inclusive a limitação global de `new_id`.
+
 ## Estado após a implementação EVDEV supervisionada
 
 O operador confirmou o acelerador em Y. A captura real corrigida e as duas anteriores passaram em replay completo. O backend EVDEV e a supervisão física foram implementados por opt-in, sem iniciar motor ou alterar drivers. O runner permanece passivo por padrão; `--enable-ffb` cria o processo separado de saída e teclas. Detalhes, limitações de exclusividade/temporização e próximo ensaio manual estão em [SUPERVISED_FFB.md](SUPERVISED_FFB.md). A descrição das etapas anteriores abaixo é histórica; a validação física continua pendente.

@@ -83,3 +83,10 @@ O transporte aceita um callback opcional `input_report` para GET Input `0x01`, r
 Somente `MockBackend` permite `test_limit_s=None`. A sessão passiva escolhe essa opção para simular uma corrida completa; a duração dos efeitos e o deadline individual de 160 ms continuam ativos. Outras instâncias conservam o limite global padrão de 120 s e backends diferentes de mock não podem desativá-lo. Essa política não autoriza nem prepara uma sessão física ilimitada.
 
 `PassiveSession` injeta o último MotionState amostrado na entrada em todos os eventos e ticks; após 250 ms sem amostra as derivadas ficam em zero. A entrada real solicita `CLOCK_MONOTONIC` somente para seu próprio fd via EVIOCSCLOCKID ([UAPI input](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h)); não muda relógio global, ranges, drivers ou força.
+
+
+## Associação inicial e replay
+
+O runner registra `binding` com `ready=false` antes de iniciar a negociação. Nesse intervalo, UHID_STOP de uma troca de driver limpa efeitos/caches como CLOSE, sem encerrar a sessão. A ação `binding` com `ready=true` restaura STOP terminal; o default do transporte isolado continua terminal para manter os contratos e capturas anteriores. GET/SET/OUTPUT permanecem atendidos uma única vez pelo mesmo adaptador durante o bind bloqueante.
+
+Após a associação, `resend_input` envia os bytes completos do último Input sem criar novo timestamp/amostra no estimador; ticks usam o MotionState já disponível. Ambas as ações são reproduzidas e verificadas pelo replay. Associação sysfs, carregamento de módulo e verificação de prontidão pertencem ao runner, não ao transporte matemático/replay. Ver [PID_BINDING.md](PID_BINDING.md).

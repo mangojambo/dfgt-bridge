@@ -26,7 +26,7 @@ Só é necessário Python 3.10+ para os testes offline; não instale `evdev` par
 python3 -B -m unittest discover -s tests -v
 ```
 
-A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **307 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
+A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **346 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
 
 Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. `scripts/run-passive.py` cria o G29 virtual com controles da v0.8 e, por padrão, calcula FFB exclusivamente no mock. A saída física opcional usa outro processo, teto inicial de 10%, máximo padrão de 20%, watchdog de cálculo, supervisão do jogo e F7/F8/F9/F10 globais. `scripts/replay-capture.py` valida capturas offline e o trace físico pareado, sempre em mock. Os entrypoints inserem `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
 
@@ -35,6 +35,8 @@ Comandos para execução passiva, captura completa, marcação de fases e replay
 As [duas capturas reais fornecidas pelo operador](docs/CAPTURE_COMPARISON_20261024.md) passaram no replay offline. O CLI agora usa acelerador em **Y por padrão**, reproduzindo a configuração funcional v0.8 (`--gas-axis y`); o comando anterior sem essa opção enviava o pedal em Z e deixava Y em 255. O descritor e a matemática FFB permanecem intactos.
 
 O operador confirmou o acelerador corrigido. A terceira captura, `dirt5-y-20261024-144639.jsonl.gz`, também passou em replay completo: 20.501 quadros, HID Y 0..255 e zero diferenças entre ABS_Y e HID Y. Os comandos de modo físico, seus limites, parada independente e procedimento manual de polaridade estão em [SUPERVISED_FFB.md](docs/SUPERVISED_FFB.md). Nenhum teste real de motor foi executado nesta implementação.
+
+A associação automática omitida na refatoração foi restaurada: o runner carrega o PIDFF já instalado quando necessário e só informa `[PRONTO]` após confirmar driver, entrada EVDEV virtual e FF_CONSTANT. Antes disso, a saída física não pode iniciar. A propriedade do nó é conferida por token PHYS; descritor, serial vazio e controles permanecem preservados. O fallback `new_id` é global ao VID/PID e é recusado se houver outro G29. Leia [o diagnóstico e as limitações da associação](docs/PID_BINDING.md) antes do próximo teste passivo.
 
 ## Compatibilidade com caminhos existentes
 
@@ -63,8 +65,9 @@ Fora desta restrição, um clone convencional usa `.git/` normalmente; o wrapper
 - [Transporte, pool, timeline e scheduler offline](docs/PID_TRANSPORT.md)
 - [Plano de integração com a v0.8 e estado da etapa passiva](docs/INTEGRATION_PLAN.md)
 - [Runner passivo, comandos e contrato de captura/replay](docs/PASSIVE_RUNNER.md)
+- [Associação PIDFF, prontidão e diagnóstico da regressão](docs/PID_BINDING.md)
 - [Comparação das capturas reais e correção do acelerador](docs/CAPTURE_COMPARISON_20261024.md)
 - [FFB EVDEV supervisionado, controles, replay e primeiro ensaio manual](docs/SUPERVISED_FFB.md)
 - [Regras para agentes e colaboradores](AGENTS.md)
 
-Testes físicos, alteração de drivers e avaliação de comandos proprietários Logitech dependem de aprovação separada.
+Testes de motor, alterações de drivers físicos, instalação/configuração persistente e avaliação de comandos proprietários Logitech dependem de aprovação separada.

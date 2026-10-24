@@ -161,3 +161,16 @@ Novos módulos: `backends/evdev.py`, `supervised.py`, `physical_worker.py`, `phy
 O perfil físico começa em 10%, usa teto padrão de 20% (configurável até 30%), watchdog independente de 100 ms, replay EVDEV máximo de 160 ms e duração supervisionada de 120 s por padrão. F9 nunca religa; requer `ffb-arm`, jogo ativo e cálculo posterior. A saída do DiRT5.exe é monitorada separadamente de UHID_CLOSE. A política física recebe componentes antes do teto mock, evitando aplicar o ganho duas vezes.
 
 Ver [SUPERVISED_FFB.md](SUPERVISED_FFB.md) para comandos e procedimento manual. Permanecem pendentes validação de polaridade mecânica, prazo real kernel/USB/firmware, captura global de teclado no jogo e exclusividade efetiva. O flock é cooperativo; FF_GAIN/AUTOCENTER são globais, ficam zero ao encerrar e não têm restauração de estado desconhecido. Não houve instalação de driver, modificação do SteamOS ou push. O próximo passo é o ensaio supervisionado manual a 5%, não um teste automático de motor.
+
+
+## Correção da regressão de enumeração PIDFF
+
+Estado: **346 testes passando, zero falhas esperadas e zero ignorados**. Os 39 novos testes cobrem propriedade UHID por PHYS, preservação de serial/descritor/controles, associação simulada e seus erros, ACK durante bind bloqueado, cancelamento, timeout, perda de entrada/capacidades, proteção dos dispositivos físicos e reenvio dos pedais sem amostragem artificial. A suite passou com audit hook que bloqueia dispositivos reais e ResourceWarning tratado como erro.
+
+A v0.8 carregava PIDFF e registrava o ID G29 em uma thread enquanto atendia UHID; esse mecanismo foi omitido no runner inicial. Foi restaurado com validação do nó próprio e prontidão obrigatória (PIDFF, EVDEV e FF_CONSTANT). O processo físico permanece adiado até essa verificação, mesmo com opt-in. STOP durante a associação não encerra prematuramente a sessão; após pronto, continua terminal.
+
+Commits da implementação: `2f0828d` propriedade PHYS sem mudar serial; `d9ff562` ciclo de vida do bootstrap; `d0e904e` associação guardada e capacidades; `4f60e36` integração e prontidão; `6fbba10` reenvio de controles sem nova amostra. Referências e launchers não foram modificados.
+
+Nenhum módulo foi carregado, nenhum bind real foi escrito e nenhum motor foi acionado. O módulo PIDFF instalado e seu estado não registrado foram inspecionados somente em leitura. A API HID exige fallback global por VID/PID quando falta uma regra; não permite um override por instância. Outro G29 presente bloqueia esse fallback, mas a regra pode afetar G29 conectado posteriormente e permanece até unload/reboot. Não há instalação ou configuração persistente. Diagnóstico, fontes e comando passivo preparado: [PID_BINDING.md](PID_BINDING.md).
+
+Próxima tarefa: operador confirmar enumeração, controles e menu FFB no SteamOS em modo passivo antes de retomar o ensaio físico supervisionado. Não houve push.

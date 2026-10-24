@@ -182,4 +182,3 @@ class StartupRunnerTests(unittest.TestCase):
         self.execute(stop=stop, physical_factory=factory)
         factory.assert_not_called()
         self.assertNotIn('[PRONTO]', self.console.getvalue())
-

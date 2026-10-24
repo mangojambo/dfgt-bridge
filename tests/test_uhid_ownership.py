@@ -27,4 +27,3 @@ class UHIDOwnershipTests(unittest.TestCase):
         for token in ('x'*64, 'bad\0token', 'não-ascii'):
             with self.assertRaises(ValueError):
                 create_event(phys=token)
-

@@ -30,7 +30,7 @@ class ConstantOutput:
     """
     def __init__(self, dev=None, strength_percent=12, rate_hz=45, clock=time.monotonic,
                  boost=1.0, periodic_boost=1.0, max_strength_percent=60,
-                 test_limit_s=120, condition_headroom=0.0):
+                 test_limit_s=120, condition_headroom=0.0, slew_per_s=None):
         dev = MockBackend(clock=clock) if dev is None else dev
         if (dev.info.vendor, dev.info.product) != (0x046d, 0xc29a):
             raise RuntimeError('FFB rejeitado: fonte física não é DFGT 046d:c29a')
@@ -50,6 +50,9 @@ class ConstantOutput:
         if not math.isfinite(periodic_boost) or not 0.0 <= periodic_boost <= 3.0:
             raise ValueError('Periodic boost 0..3')
         self.dev = dev
+        if slew_per_s is not None and (not math.isfinite(slew_per_s) or not 0 < slew_per_s <= 32767):
+            raise ValueError('Slew deve estar em 0..32767 unidades/s, exclusivo de zero')
+        self.slew_per_s = slew_per_s
         self.clock = clock
         self.boost = boost
         self.condition_headroom = condition_headroom
@@ -140,6 +143,7 @@ class ConstantOutput:
             return
         if now - self.last_tick < self.interval:
             return
+        elapsed = self.interval if self.last_tick < -1e8 else max(0, now-self.last_tick)
         self.last_tick = now
         self.peak_input = max(self.peak_input, abs(game_magnitude))
         if self.last_mix.clipped:
@@ -150,6 +154,8 @@ class ConstantOutput:
             self.first_active = now
         # Limit change in output per tick; avoids a sudden full reversal.
         step = max(512, self.cap // 2)
+        if self.slew_per_s is not None:
+            step = max(1, round(self.slew_per_s * min(elapsed, .05)))
         if level > self.last_sent + step:
             level = self.last_sent + step
         elif level < self.last_sent - step:

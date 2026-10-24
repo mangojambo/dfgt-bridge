@@ -50,6 +50,8 @@ class PhysicalInputTests(unittest.TestCase):
             return struct.pack('=4H', 3, 0x046d, 0xc29a, 0x100)
         if request == 0x80604518:
             return (1 << 288).to_bytes(96, 'little')
+        if request == 0x400445a0:
+            return bytes(4)
         code = request - 0x80184540
         return struct.pack('=6i', {0: 8192, 1: 255, 2: 255, 16: -1, 17: 0}[code],
                            0, 16383 if code == 0 else 255, 0, 0, 0)

@@ -3,6 +3,7 @@
 import fcntl
 import os
 import struct
+import time
 
 SOURCE = '/dev/input/by-id/usb-046d_Driving_Force_GT-event-joystick'
 INPUT_EVENT = struct.Struct('@llHHi')
@@ -15,6 +16,9 @@ class PhysicalWheel:
             identity = struct.unpack('=HHHH', fcntl.ioctl(self.fd, 0x80084502, bytes(8)))
             if identity[1:3] != (0x046d, 0xc29a):
                 raise ValueError('A entrada deve ser DFGT 046d:c29a')
+            # EVIOCSCLOCKID afeta somente este leitor; não escreve forças nem
+            # muda configuração global. Derivadas usam SYN_REPORT monotônico.
+            fcntl.ioctl(self.fd, 0x400445a0, struct.pack('=i', time.CLOCK_MONOTONIC))
             axes = [self.absinfo(code) for code in (0, 1, 2)]
             if [a[1:3] for a in axes] != [(0, 16383), (0, 255), (0, 255)]:
                 raise ValueError('Ranges diferentes da baseline v0.8')
@@ -22,6 +26,7 @@ class PhysicalWheel:
             self.pressed = set()
             self.dirty = self.dropped = False
             self.resyncs = 0
+            self.frame_times_ns = []
         except BaseException:
             self.close()
             raise
@@ -40,6 +45,7 @@ class PhysicalWheel:
 
     def read_frames(self):
         """Um lote limitado; SYN_DROPPED exige descartar e consultar estado."""
+        self.frame_times_ns = []
         try:
             data = os.read(self.fd, INPUT_EVENT.size * 64)
         except BlockingIOError:
@@ -49,7 +55,7 @@ class PhysicalWheel:
         if len(data) % INPUT_EVENT.size:
             raise OSError('input_event parcial')
         frames = []
-        for _, _, kind, code, value in INPUT_EVENT.iter_unpack(data):
+        for seconds, micros, kind, code, value in INPUT_EVENT.iter_unpack(data):
             if kind == 0 and code == 3:
                 self.dropped = True
                 continue
@@ -58,6 +64,7 @@ class PhysicalWheel:
                     self.resync()
                     self.dropped = self.dirty = False
                     frames.append(self.state())
+                    self.frame_times_ns.append(seconds * 1_000_000_000 + micros * 1000)
                 continue
             if kind == 3 and code in (0, 1, 2, 16, 17):
                 self.values[(0, 1, 2, 16, 17).index(code)] = value
@@ -70,6 +77,7 @@ class PhysicalWheel:
                 self.dirty = True
             elif kind == 0 and code == 0 and self.dirty:
                 frames.append(self.state())
+                self.frame_times_ns.append(seconds * 1_000_000_000 + micros * 1000)
                 self.dirty = False
         return frames
 

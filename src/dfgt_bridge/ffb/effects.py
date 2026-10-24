@@ -9,15 +9,19 @@ import time
 from .renderer import (ANGLE_MAX, MotionEstimator, condition_force,
                        effect_projection, envelope_magnitude,
                        enveloped_constant, periodic_wave, ramp_level)
+from .pool import EffectPool
 
 
 class PIDPassive:
     """Return PID feature handshake but NEVER forward force to a physical motor."""
-    def __init__(self):
-        self.last_block = 1
-        self.next_block = 1
-        self.pending_kinds = {}
+    def __init__(self, capacity=40):
+        self.pool = EffectPool(capacity)
+        self.effects = self.pool.effects
+        self.last_block = 0
         self.output_counts = Counter()
+
+    def _new_effect(self, kind):
+        return dict(kind=kind, running=False)
 
     def seen(self, packet):
         if packet:
@@ -25,16 +29,16 @@ class PIDPassive:
 
     def set_report(self, packet, number):
         if number == 0x54:  # Create New Effect, host feature report.
-            self.last_block = self.next_block
-            self.next_block = 1 + self.next_block % 40
-            if len(packet) >= 2:
-                self.pending_kinds[self.last_block] = packet[1]
+            if len(packet) != 4 or packet[0] != number or packet[3] & 0xfe:
+                raise ValueError('Create New Effect malformado')
+            allocation = self.pool.allocate(packet[1], self._new_effect)
+            self.last_block = allocation.index
 
     def get_report(self, number):
         if number == 0x56:  # PID Block Load (id, index, success, RAM available)
-            return bytes((0x56, self.last_block, 1, 0xFF, 0xFF))
+            return bytes((0x56, self.pool.last.index, self.pool.last.status)) + struct.pack('<H', self.pool.available)
         if number == 0x57:  # PID Pool (id, RAM size, simultaneous max, flags)
-            return bytes((0x57, 0xFF, 0xFF, 40, 1))
+            return bytes((0x57,)) + struct.pack('<HBB', self.pool.ram_size, self.pool.capacity, 1)
         return bytes([number])
 
 
@@ -57,8 +61,8 @@ class PIDSteeringBridge(PIDPassive):
     Limitações de ciclo de vida permanecem explícitas na suite de auditoria.
     """
     def __init__(self, clock=time.monotonic, *, velocity_reference=2.0,
-                 acceleration_reference=4.0):
-        super().__init__()
+                 acceleration_reference=4.0, capacity=40):
+        super().__init__(capacity)
         if not all(math.isfinite(v) and v > 0 for v in (
                 velocity_reference, acceleration_reference)):
             raise ValueError('Escalas de movimento inválidas')
@@ -66,7 +70,6 @@ class PIDSteeringBridge(PIDPassive):
         self.acceleration_reference = acceleration_reference
         self.motion_estimator = MotionEstimator()
         self.clock = clock
-        self.effects = {}
         self.gain = 1.0
         self.armed = False
         self.paused = False
@@ -84,7 +87,8 @@ class PIDSteeringBridge(PIDPassive):
 
     def arm(self):
         # Discard attach-time kernel probes; game effects start after this.
-        self.effects.clear()
+        self.pool.reset()
+        self.last_block = 0
         self.gain = 1.0
         self.paused = False
         self.last_command_time = -1e9
@@ -108,15 +112,17 @@ class PIDSteeringBridge(PIDPassive):
         if not self.armed:
             return
         if number == 0x54 and len(packet) >= 2:
+            if self.pool.last.status != 1:
+                return
             kind = packet[1]
             block = self.last_block
-            self.effects[block] = self._new_effect(kind)
             self.created_by_kind[PID_EFFECT_NAMES.get(kind, f'unknown-{kind}')] += 1
             self.pid_counts['created'] += 1
             if kind == 3 or kind not in PID_EFFECT_NAMES:
                 self.ignored[f'unsupported_kind_{kind}'] += 1
         elif number == 0x5b and len(packet) >= 2:
-            self.effects.pop(packet[1], None)
+            if packet[1] in self.effects:
+                self.pool.free(packet[1])
             self.pid_counts['deleted'] += 1
         elif number == 0x59 and len(packet) >= 2:
             self.gain = packet[1] / 255.0
@@ -133,7 +139,8 @@ class PIDSteeringBridge(PIDPassive):
         if op == 0x50 and len(packet) >= 2:
             ctrl = packet[1]
             if ctrl == 4:  # device reset
-                self.effects.clear()
+                self.pool.reset()
+                self.last_block = 0
                 self.last_command_time = -1e9
                 self.paused = False
             elif ctrl in (2, 3, 5):
@@ -215,7 +222,7 @@ class PIDSteeringBridge(PIDPassive):
             elif effect_op == 3:
                 item['running'] = False
         elif op == 0x5b:
-            self.effects.pop(block, None)
+            self.pool.free(block)
         else:
             self.ignored[f'unsupported_report_0x{op:02x}'] += 1
         if item.get('running') and op in (0x51, 0x52, 0x53, 0x55, 0x58, 0x5d):

@@ -147,6 +147,7 @@ class OfflineAudit(unittest.TestCase):
         for path in files:
             bridge = M.PIDSteeringBridge(clock=lambda: self.now)
             bridge.arm()
+            historical = load_reviewed_definitions(LIVE).PIDPassive()
             with path.open() as handle:
                 rows = list(csv.DictReader(handle))
             for row in rows:
@@ -154,11 +155,20 @@ class OfflineAudit(unittest.TestCase):
                 self.now = int(row['timestamp_ns']) / 1e9
                 packet = bytes.fromhex(row['hex_bytes'])
                 if row['kind'] == 'SET_REPORT':
+                    historical.set_report(packet, int(row['report_num']))
                     bridge.set_report(packet, int(row['report_num']))
                 elif row['kind'] == 'OUTPUT':
                     bridge.seen(packet)
                 elif row['kind'] == 'GET_REPORT':
-                    self.assertEqual(bridge.get_report(int(row['report_num'])), packet)
+                    number = int(row['report_num'])
+                    # A captura conserva o handshake histórico inteiro. O pool
+                    # novo informa o orçamento real, não o antigo RAM=0xffff.
+                    self.assertEqual(historical.get_report(number), packet)
+                    reply = bridge.get_report(number)
+                    if number == 0x57:
+                        self.assertEqual(reply, bytes.fromhex('57000a2801'))
+                    else:
+                        self.assertEqual(reply, bytes.fromhex('560101c009'))
                 else:
                     self.fail('Tipo de captura inesperado')
                 self.assertEqual(bridge.raw_level(), 0, path.name)
@@ -259,7 +269,6 @@ class OfflineAudit(unittest.TestCase):
         self.bridge.seen(bytes((0x52, block)) + struct.pack('<HHHH', 8192, 0, 100, 0))
         self.assertEqual(self.bridge.raw_level(), 8192)
 
-    @unittest.expectedFailure
     def test_gap_pool_exhaustion_does_not_overwrite_live_blocks(self):
         for _ in range(40):
             self.create()

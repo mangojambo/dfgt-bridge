@@ -12,7 +12,7 @@ from .ffb.safety import ConstantOutput
 
 
 class SupervisedPolicy:
-    def __init__(self, backend, *, strength=10, maximum=20, polarity=1, session_s=120):
+    def __init__(self, backend, *, strength=10, maximum=20, polarity=1, session_s=120, require_game=False):
         if not (type(strength) is int and 0 <= strength <= 10 and
                 type(maximum) is int and 10 <= maximum <= 30 and polarity in (-1, 1)):
             raise ValueError('Inicial 0..10%, máximo 10..30%, polaridade ±1')
@@ -34,6 +34,9 @@ class SupervisedPolicy:
         self.latency_ns = self.max_latency_ns = 0
         self.frame = None
         self.closed = False
+        self.require_game = require_game
+        self.game_running = not require_game
+        self.game_seen = False
 
     def stop(self, reason, *, latch=False, fatal=False):
         self.output.stop()
@@ -89,7 +92,7 @@ class SupervisedPolicy:
                         self.accepted += 1
                         self.latency_ns = now_ns-calculated
                         self.max_latency_ns = max(self.max_latency_ns, self.latency_ns)
-                        if not self.latched:
+                        if not self.latched and self.game_running:
                             before = self.output.writes
                             previous_tick = self.output.last_tick
                             self.output.tick({k: v*self.polarity for k, v in components.items()})
@@ -98,7 +101,15 @@ class SupervisedPolicy:
                                     self.deduplicated += 1
                                 else:
                                     self.rate_limited += 1
-                            self.reason = (data.get('zero_reason') or 'renderer_zero') if self.output.last_sent == 0 else None
+                            if self.output.last_sent != 0:
+                                self.reason = None
+                            elif self.output.strength_percent == 0:
+                                self.reason = 'strength_zero'
+                            else:
+                                self.reason = data.get('zero_reason') or ('renderer_zero' if
+                                    math.fsum(components.values()) == 0 else 'quantized_or_rate_limited_zero')
+                        elif not self.game_running and not self.latched:
+                            self.reason = 'waiting_for_DiRT5_process'
             elif action == 'stop':
                 self.minimum_epoch = max(self.minimum_epoch, data.get('epoch', 0))
                 self.stop(data['reason'], latch=data.get('latch', False), fatal=data.get('fatal', False))
@@ -107,7 +118,8 @@ class SupervisedPolicy:
                 if self.output.strength_percent == 0:
                     self.reason = 'strength_zero'
             elif action == 'arm':
-                if not self.hard_fault and (self.latch_ns is None or data['requested_ns'] > self.latch_ns):
+                if (not self.hard_fault and self.game_running and
+                        (self.latch_ns is None or data['requested_ns'] > self.latch_ns)):
                     self.latched = False
                     self.last_valid_ns = None
                     self.arm_after_ns = now_ns
@@ -115,6 +127,12 @@ class SupervisedPolicy:
                     self.reason = 'explicit_arm_awaiting_fresh_calculation'
             elif action == 'poll':
                 pass
+            elif action == 'game':
+                self.game_running = bool(data['running'])
+                if self.game_running:
+                    self.game_seen = True
+                else:
+                    self.stop('game_exit' if self.game_seen else 'waiting_for_DiRT5_process', latch=self.game_seen)
             elif action == 'close':
                 self.stop('runner_shutdown')
                 self.output.close()
@@ -140,10 +158,12 @@ class SupervisedPolicy:
         return dict(strength=self.output.strength_percent, maximum=self.output.max_strength_percent,
                     polarity=self.polarity, latched=self.latched, hard_fault=self.hard_fault,
                     closed=self.closed, zero_reason=self.reason,
+                    game_running=self.game_running,
                     renderer_components=self.frame['components'] if self.frame else {},
                     renderer_total=raw_total, requested_before_limit=mix.requested if mix else 0,
                     limited_force=mix.limited if mix else 0,
                     game_force=self.frame.get('game_force', {}) if self.frame else {},
+                    effects=self.frame.get('effects', []) if self.frame else [],
                     mix=asdict(mix) if mix else None, evdev_level=self.output.last_sent,
                     uploads=self.output.writes, deduplicated=self.deduplicated,
                     rate_limited=self.rate_limited,

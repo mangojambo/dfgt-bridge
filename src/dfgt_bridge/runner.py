@@ -67,7 +67,7 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
     physical_config = dict(strength=getattr(args, 'ffb_strength', 10),
                            maximum=getattr(args, 'ffb_max_strength', 20),
                            polarity=getattr(args, 'ffb_polarity', 1),
-                           session_s=getattr(args, 'ffb_seconds', 120))
+                           session_s=getattr(args, 'ffb_seconds', 120), require_game=True)
     trace_path = getattr(args, 'physical_trace', None)
     if enable_ffb and not trace_path and args.capture:
         trace_path = args.capture + '.ffb.jsonl.gz'
@@ -103,7 +103,8 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                     physical_factory = PhysicalClient
                 physical = stack.enter_context(physical_factory(
                     args.source, enable_ffb=True, config=physical_config,
-                    keyboard_path=getattr(args, 'keyboard_event', None), trace_path=trace_path))
+                    keyboard_path=getattr(args, 'keyboard_event', None), trace_path=trace_path,
+                    game_pid=getattr(args, 'game_pid', None)))
 
             def dispatch(kind, data, stamp=None):
                 started = time.monotonic_ns()
@@ -243,6 +244,7 @@ def main(argv=None):
     parser.add_argument('--ffb-seconds', type=int, choices=range(30, 241), default=120, metavar='30..240')
     parser.add_argument('--keyboard-event', help='Teclado evdev explícito; somente com --enable-ffb')
     parser.add_argument('--physical-trace', help='Trace da política física (replay só offline)')
+    parser.add_argument('--game-pid', type=int, help='PID de DiRT5.exe; padrão: descobrir e supervisionar automaticamente')
     parser.add_argument('--gas-axis', choices=('z', 'y', 'both'), default='y',
                         help='Eixo virtual do acelerador: y corresponde à v0.8 usada no DiRT 5 (padrão)')
     parser.add_argument('--invert-gas', action='store_true')
@@ -255,6 +257,8 @@ def main(argv=None):
                         help='Rota anotada; não é detectada a partir dos bytes')
     parser.add_argument('--scenario', default='unknown', help='Carro/pista/ajustes anotados')
     args = parser.parse_args(argv)
+    if args.game_pid is not None and args.game_pid < 1:
+        parser.error('--game-pid deve ser positivo e identificar DiRT5.exe')
     if args.duration is not None and (not __import__('math').isfinite(args.duration) or args.duration <= 0):
         parser.error('--duration deve ser finita e positiva')
     stop = {'reason': None}

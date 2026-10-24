@@ -17,7 +17,8 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
             opener = gzip.open if str(core_capture).endswith('.gz') else open
             source = opener(core_capture, 'rt', encoding='utf-8')
             source_records = iter(records(source))
-            next(source_records, None)
+            core_header = next(source_records, None)
+            source_effects, source_gain = {}, 1.0
         opener = gzip.open if str(path).endswith('.gz') else open
         with opener(path, 'rt', encoding='utf-8') as stream:
             iterator = iter(records(stream))
@@ -28,6 +29,9 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
             if (header['schema'] != SCHEMA or header['version'] != VERSION or
                     metadata.get('kind') != 'physical_policy'):
                 raise ValueError('Trace físico incompatível')
+            if source is not None and 'physical_config' in core_header['metadata']:
+                if core_header['metadata']['physical_config'] != metadata['config']:
+                    raise ValueError('Perfil físico difere da captura principal')
             match = metadata['implementation_sha256'] == implementation_hash()
             if not match and not verify_compatible:
                 raise ValueError('Fontes do trace físico diferentes; use --verify-compatible para conferir resultados')
@@ -58,8 +62,19 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
                         for original in source_records:
                             if original.get('kind') != 'step':
                                 continue
+                            transitions = original['result']['transitions']
+                            if 'effects' in transitions:
+                                source_effects = transitions['effects']
+                            source_gain = transitions.get('gain', source_gain)
                             if (original['timestamp_ns'] == frame['calculated_ns'] and
                                     original['result']['components'] == frame['components']):
+                                effects = [(int(i), v) for i, v in sorted(source_effects.items(), key=lambda pair: int(pair[0]))]
+                                expected_game = dict(pid_gain=source_gain,
+                                    constant_levels=[[i, v['level']] for i, v in effects if v['kind'] == 1 and v['running']])
+                                expected_effects = [[i, v['kind'], v['running'], v['gain']] for i, v in effects]
+                                if (('game_force' in frame and frame['game_force'] != expected_game) or
+                                        ('effects' in frame and frame['effects'] != expected_effects)):
+                                    raise ValueError('Parâmetros PID do trace divergem da captura principal')
                                 break
                         else:
                             raise ValueError('Frame físico não corresponde ao renderer da captura principal')

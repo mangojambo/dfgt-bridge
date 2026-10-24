@@ -10,6 +10,7 @@ import os
 import signal
 import socket
 import time
+import math
 from contextlib import ExitStack
 
 from .capture import CaptureWriter, canonical, implementation_hash
@@ -43,10 +44,11 @@ class Mailbox:
         return json.loads(raw)
 
 
-def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, path, config, keyboard_path, trace_path):
+def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, path, config, keyboard_path, trace_path, game_pid=None):
     # Imports físicos somente no processo explicitamente autorizado.
     from .backends.evdev import EvdevBackend
     from .input.global_keys import GlobalKeys
+    from .game_monitor import GameMonitor
     writer = backend = keys = policy = None
     signals = {'stop': False, 'quit': False}
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -60,6 +62,8 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                                    implementation_sha256=implementation_hash(), physical_id=[0x046d, 0xc29a]))
         backend = EvdevBackend(path, enable_ffb=True)
         policy = SupervisedPolicy(backend, **config)
+        game = GameMonitor(game_pid)
+        last_game = None
         keys = GlobalKeys(enable_ffb=True, path=keyboard_path)
         if not keys.devices:
             print('[FFB] Teclas globais INDISPONÍVEIS. Terminal: ffb-stop; '
@@ -82,12 +86,19 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
         def guard():
             if policy.last_valid_ns is None or time.monotonic_ns()-policy.last_valid_ns >= 100_000_000:
                 raise TimeoutError('Cálculo vencido antes da operação EVDEV')
+            if policy.require_game and (game.identity is None or game.identity_for(game.identity[0]) != game.identity):
+                raise TimeoutError('Jogo saiu antes da operação EVDEV')
         backend.freshness_guard = guard
         last_stop = last_emergency = 0
         last_command = 0
         last_flush = time.monotonic_ns()
         channel.send(b'ack')
         while not quit_flag.value and not signals['quit']:
+            if policy.require_game:
+                identity = game.poll(time.monotonic_ns())
+                if identity != last_game:
+                    apply('game', dict(running=identity is not None, identity=identity))
+                    last_game = identity
             if signals['stop']:
                 signals['stop'] = False
                 apply('stop', dict(reason='terminal_SIGUSR1', latch=True))
@@ -107,7 +118,8 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                     apply('strength', dict(percent=amount))
                     print(f'[FFB] Limite={policy.output.strength_percent}%, desligado={policy.latched}', flush=True)
                 elif key == 68:
-                    print('[FFB F10] ' + canonical(policy.snapshot()), flush=True)
+                    print('[FFB F10] ' + canonical(dict(policy.snapshot(),
+                          io={k: getattr(backend, k, 0) for k in ('io_calls', 'last_io_ns', 'max_io_ns')})), flush=True)
             command = commands.read()
             if command and command['nonce'] > last_command:
                 last_command = command['nonce']
@@ -135,6 +147,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             apply('poll', {})  # Só verifica idade/deadline; nunca renova força.
             status.write(dict(ready=True, at_ns=time.monotonic_ns(), pid=os.getpid(),
                               keyboards=len(keys.devices), keyboard_errors=getattr(keys, 'errors', [])[-3:],
+                              game_identity=last_game,
                               io={k: getattr(backend, k, 0) for k in ('io_calls', 'last_io_ns', 'max_io_ns')},
                               **policy.snapshot()))
             if writer and time.monotonic_ns()-last_flush >= 1_000_000_000:
@@ -168,10 +181,10 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
 
 
 class PhysicalClient:
-    def __init__(self, path, *, enable_ffb=False, config=None, keyboard_path=None, trace_path=None):
+    def __init__(self, path, *, enable_ffb=False, config=None, keyboard_path=None, trace_path=None, game_pid=None):
         if enable_ffb is not True:
             raise PermissionError('Processo físico exige --enable-ffb')
-        self.config = config or dict(strength=10, maximum=20, polarity=1, session_s=120)
+        self.config = dict(config or dict(strength=10, maximum=20, polarity=1, session_s=120), require_game=True)
         # Validar antes de criar processo/fd usando somente o mock.
         from .backends.mock import MockBackend
         probe = SupervisedPolicy(MockBackend(), **self.config)
@@ -183,17 +196,19 @@ class PhysicalClient:
         self.channel, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self.channel.setblocking(False)
         self.process = ctx.Process(target=worker, args=(child, self.status, self.commands,
-                                   self.stop_epoch, self.emergency_epoch, self.quit_flag, path, self.config, keyboard_path, trace_path))
+                                   self.stop_epoch, self.emergency_epoch, self.quit_flag, path, self.config, keyboard_path, trace_path, game_pid))
         self.ready = False
         self.latest = None
         self.generation = self.coalesced = self.nonce = 0
         self.cached_status = {}
         self.started_ns = time.monotonic_ns()
         self.closed = False
+        self.last_zero = True
         try:
             self.process.start()
         except BaseException:
             self.channel.close()
+            self.process.close()
             raise
         finally:
             child.close()
@@ -223,7 +238,8 @@ class PhysicalClient:
             raise OSError('Supervisor EVDEV morreu; efeito não será renovado')
         if self.ready and self.latest is not None:
             try:
-                self.channel.send(self.latest)
+                if self.channel.send(self.latest) != len(self.latest):
+                    raise OSError('Pacote de IPC parcial')
             except BlockingIOError:
                 return
             self.latest, self.ready = None, False
@@ -239,14 +255,22 @@ class PhysicalClient:
                   (info.get('report_type') == 1 and not result['error'] and packet and (
                    (packet[0] == 0x50 and packet[1] in (2, 3, 4, 5)) or packet[0] == 0x5b or
                    (packet[0] == 0x5a and packet[2] == 3))))
+        zero = math.fsum(result['components'].values()) == 0
+        urgent = urgent or (zero and not self.last_zero)
+        self.last_zero = zero
         if urgent:
             self.stop_epoch.value += 1
+        engine = session.core.engine
+        zero_reason = ('PID_disabled_or_stopped' if urgent else
+                       'PID_paused' if getattr(engine, 'paused', False) else
+                       'PID_actuators_disabled' if not getattr(engine, 'actuators_enabled', True) else None)
         value = dict(generation=self.generation, calculated_ns=session.timestamp_ns,
                      stop_epoch=self.stop_epoch.value,
-                     components=result['components'], zero_reason='PID_disabled_or_stopped' if urgent else None,
+                     components=result['components'], zero_reason=zero_reason,
                      game_force=dict(pid_gain=session.core.engine.gain,
-                                     constant_levels=[[i, v['level']] for i, v in session.core.engine.effects.items()
-                                                      if v['kind'] == 1 and v['running']]))
+                                     constant_levels=[[i, v['level']] for i, v in sorted(session.core.engine.effects.items())
+                                                      if v['kind'] == 1 and v['running']]),
+                     effects=[[i, v['kind'], v['running'], v['gain']] for i, v in sorted(session.core.engine.effects.items())])
         encoded = canonical(value).encode()
         if len(encoded) > MAX_PACKET:
             raise ValueError('Frame de força excedeu limite de IPC')
@@ -276,6 +300,8 @@ class PhysicalClient:
         if self.process.is_alive():
             self.process.kill()
             self.process.join(.5)
+        if not self.process.is_alive():
+            self.process.close()
         state = self.status.read()
         if state:
             self.cached_status = state

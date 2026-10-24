@@ -283,6 +283,39 @@ class CaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'incompatível'):
                 replay(self.path)
 
+    def test_cross_version_mode_still_verifies_every_output_and_descriptor(self):
+        self.constant()
+        self.finish()
+        values = self.load()
+        values[0]['metadata']['implementation_sha256'] = '0'*64
+        self.rewrite(values)
+        with self.assertRaisesRegex(ValueError, 'implementation_sha256'):
+            replay(self.path)
+        compatible = replay(self.path, verify_compatible=True)
+        self.assertTrue(compatible['complete'])
+        self.assertFalse(compatible['implementation_match'])
+        self.assertTrue(compatible['compatibility_verified'])
+        bad_force = copy.deepcopy(values)
+        bad_force[-3]['result']['final_force'] += 1
+        self.rewrite(bad_force)
+        with self.assertRaisesRegex(ValueError, 'Replay divergente'):
+            replay(self.path, verify_compatible=True)
+        bad_descriptor = copy.deepcopy(values)
+        bad_descriptor[0]['metadata']['descriptor_hex'] = '00'
+        self.rewrite(bad_descriptor)
+        with self.assertRaisesRegex(ValueError, 'descriptor_hex'):
+            replay(self.path, verify_compatible=True)
+
+    def test_diagnostic_annotations_are_verified_when_present(self):
+        self.constant()
+        self.finish()
+        values = self.load()
+        self.assertEqual(values[1]['classification']['category'], 'pid')
+        values[1]['classification']['category'] = 'proprietary_ignored'
+        self.rewrite(values)
+        with self.assertRaisesRegex(ValueError, 'Classificação divergente'):
+            replay(self.path)
+
     def test_existing_capture_suggests_unused_name_without_creating_or_overwriting(self):
         for name in ('existing.jsonl', 'existing.jsonl.gz'):
             with self.subTest(name=name):

@@ -6,10 +6,11 @@ import sys
 import gzip
 
 from .capture import SCHEMA, VERSION, records
+from .diagnostics import classify_uhid_result
 from .passive import PassiveSession
 
 
-def replay(path):
+def replay(path, *, verify_compatible=False):
     session = None
     try:
         opener = gzip.open if str(path).endswith('.gz') else open
@@ -21,8 +22,12 @@ def replay(path):
                 raise ValueError('Formato de captura incompatível')
             metadata = header['metadata']
             session = PassiveSession(metadata['origin_ns'], **metadata['config'])
-            for key, value in session.metadata().items():
+            current_metadata = session.metadata()
+            implementation_match = metadata.get('implementation_sha256') == current_metadata['implementation_sha256']
+            for key, value in current_metadata.items():
                 if metadata.get(key) != value:
+                    if key == 'implementation_sha256' and verify_compatible:
+                        continue  # Só o hash; todas as respostas/forças ainda precisam coincidir.
                     raise ValueError('Contrato de replay incompatível: ' + key)
             steps = force_samples = game_steps = 0
             footer = None
@@ -40,6 +45,10 @@ def replay(path):
                         divergent = sorted(k for k in set(result) | set(record['result'])
                                            if result.get(k) != record['result'].get(k))
                         raise ValueError(f'Replay divergente no registro {record["seq"]}: {divergent}')
+                    if 'classification' in record:
+                        classification = classify_uhid_result(result) if record['action'] == 'uhid' else None
+                        if record['classification'] != classification:
+                            raise ValueError(f'Classificação divergente no registro {record["seq"]}')
                     delivery = record['delivery']
                     timing = record['timing']
                     if any(type(timing.get(key)) is not int or timing[key] < 0
@@ -59,6 +68,8 @@ def replay(path):
                     raise ValueError('Registro de captura desconhecido')
             complete = bool(footer and footer.get('complete') and not delivery_errors)
             return dict(verified=True, complete=complete, steps=steps,
+                        implementation_match=implementation_match,
+                        compatibility_verified=bool(not implementation_match and verify_compatible and complete),
                         delivery_errors=delivery_errors,
                         nonzero_force_samples=force_samples, game_marked_steps=game_steps,
                         race_physically_validated=False,
@@ -72,9 +83,11 @@ def replay(path):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('capture')
+    parser.add_argument('--verify-compatible', action='store_true',
+                        help='Aceita fontes diferentes somente se todos os resultados semânticos coincidirem')
     args = parser.parse_args(argv)
     try:
-        result = replay(args.capture)
+        result = replay(args.capture, verify_compatible=args.verify_compatible)
     except (ValueError, KeyError, TypeError, OSError, EOFError) as exc:
         print('Replay inválido: ' + str(exc), file=sys.stderr)
         return 1

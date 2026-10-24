@@ -276,7 +276,6 @@ class OfflineAudit(unittest.TestCase):
         self.spring()
         self.assertEqual(self.bridge.raw_level(16383), 32767)
 
-    @unittest.expectedFailure
     def test_gap_reducing_intensity_obeys_new_cap_immediately(self):
         motor, _ = self.motor(strength=60)
         motor.tick(32767)

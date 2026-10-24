@@ -22,7 +22,11 @@ class ConstantForce:
 
 
 class ConstantOutput:
-    """One EV_FF slot, <=45 writes/s, capped dynamic FFB & 160ms watchdog."""
+    """Um slot; taxa normal limitada. Redução de teto e stop têm prioridade.
+
+    Produz pedidos de replay de 160 ms; o mock apenas os registra. A garantia
+    de expiração de um futuro adaptador físico precisa de validação própria.
+    """
     def __init__(self, dev=None, strength_percent=12, rate_hz=45, clock=time.monotonic,
                  boost=1.0, spring_share=0.35, damper_share=0.15,
                  periodic_boost=1.0, max_strength_percent=60, test_limit_s=120):
@@ -31,11 +35,11 @@ class ConstantOutput:
             raise RuntimeError('FFB rejeitado: fonte física não é DFGT 046d:c29a')
         if FF_CONSTANT not in dev.capabilities().get(EV_FF, []):
             raise RuntimeError('FFB rejeitado: DFGT físico não suporta FF_CONSTANT')
-        if not (5 <= strength_percent <= max_strength_percent <= 70 and 15 <= rate_hz <= 45):
-            raise ValueError('Limites: intensidade inicial 5..máximo, teto 5..70%, taxa 15..45Hz')
+        if not (0 <= strength_percent <= max_strength_percent and
+                5 <= max_strength_percent <= 70 and 15 <= rate_hz <= 45):
+            raise ValueError('Limites: intensidade inicial 0..máximo, teto 5..70%, taxa 15..45Hz')
         if not (30 <= test_limit_s <= 240):
             raise ValueError('Duração de teste permitida: 30..240s')
-        import math
         if not math.isfinite(boost) or not 1.0 <= boost <= 12.0:
             raise ValueError('Boost precisa estar entre 1.0 e 12.0')
         if not (0.0 <= spring_share <= 0.5 and 0.0 <= damper_share <= 0.25):
@@ -62,14 +66,18 @@ class ConstantOutput:
         self.peak = 0
         self.peak_input = 0
         self.saturation_ticks = 0
-        self.deadline_ms = 160  # Real effect stops without a refreshed play request.
+        self.deadline_ms = 160  # Prazo do pedido; independente da duração PID.
         self.first_active = None
         self.expired = False
         self.test_limit_s = test_limit_s  # Bounded supervised run.
 
     def set_strength(self, new_percent):
-        self.strength_percent = max(5, min(self.max_strength_percent, int(new_percent)))
+        self.strength_percent = max(0, min(self.max_strength_percent, int(new_percent)))
         self.cap = round(32767 * self.strength_percent / 100)
+        # Não esperar o próximo tick nem atravessar o slew para obedecer a um
+        # teto menor. Esta operação pode antecipar uma atualização normal.
+        if abs(self.last_sent) > self.cap:
+            self._send_level(max(-self.cap, min(self.cap, self.last_sent)))
         return self.strength_percent
 
     def set_enabled(self, enabled):
@@ -83,9 +91,6 @@ class ConstantOutput:
 
     def tick(self, normalized_level):
         now = self.clock()
-        if now - self.last_tick < self.interval:
-            return
-        self.last_tick = now
         if not self.enabled:
             self.stop()
             return
@@ -125,13 +130,16 @@ class ConstantOutput:
         else:
             game_magnitude = normalized_level
             requested = round(normalized_level * self.boost * self.cap / 32767)
+        level = max(-self.cap, min(self.cap, requested))
+        if level == 0:
+            self.stop()  # Zero/Reset/Stop não esperam o gate de taxa.
+            return
+        if now - self.last_tick < self.interval:
+            return
+        self.last_tick = now
         self.peak_input = max(self.peak_input, abs(game_magnitude))
         if abs(requested) > self.cap:
             self.saturation_ticks += 1
-        level = max(-self.cap, min(self.cap, requested))
-        if level == 0:
-            self.stop()  # Stop immediately on reset / watchdog / no effect.
-            return
         if self.first_active is None:
             self.first_active = now
         # Limit change in output per tick; avoids a sudden full reversal.
@@ -140,6 +148,11 @@ class ConstantOutput:
             level = self.last_sent + step
         elif level < self.last_sent - step:
             level = self.last_sent - step
+        # O slew jamais tem prioridade sobre o teto final, inclusive quando
+        # a intensidade foi reduzida ou o último valor veio de outro perfil.
+        self._send_level(max(-self.cap, min(self.cap, level)))
+
+    def _send_level(self, level):
         if level == 0:
             self.stop()
             return
@@ -153,6 +166,7 @@ class ConstantOutput:
         self.last_sent = level
         self.peak = max(self.peak, abs(level))
         self.writes += 1
+        self.last_tick = self.clock()
 
     def stop(self):
         # No repeated zero commands: avoid burdening the Logitech driver.

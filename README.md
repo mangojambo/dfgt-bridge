@@ -6,7 +6,7 @@ Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) c
 
 ```text
 AGENTS.md / README.md / pyproject.toml / .gitignore
-src/dfgt_bridge/       pacote em desenvolvimento, com backend simulado por padrão
+src/dfgt_bridge/       effects.py, safety.py e backend simulado; sem saída física
 reference/v0.8/        baseline funcional preservada
 reference/v0.13/       experimento auditado preservado, sem correções retroativas
 archive/experiments/   versões anteriores por família e versão
@@ -26,13 +26,13 @@ Só é necessário Python 3.10+ para os testes offline; não instale `evdev` par
 python3 -B -m unittest discover -s tests -v
 ```
 
-A reorganização conserva inicialmente **18 testes: 5 passando e 13 falhas esperadas**. Consulte [o estado de desenvolvimento](docs/DEVELOPMENT.md) para os resultados posteriores às correções. Uma falha esperada documenta um defeito reproduzível; não significa que o comportamento está correto.
+A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. Após as primeiras correções, são **32 testes: 21 passando e 11 falhas esperadas**, sem testes ignorados. Foram corrigidos a duração dos efeitos independente do tráfego e os limites imediatos de saída; veja [o estado de desenvolvimento](docs/DEVELOPMENT.md). Uma falha esperada documenta um defeito reproduzível; não significa que o comportamento está correto.
 
-Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam.
+Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. Ele ainda é uma biblioteca em desenvolvimento, sem entrypoint de hardware. A suite importa `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
 
 ## Compatibilidade com caminhos existentes
 
-Links relativos na raiz preservam os nomes de `launch-dirt5.sh`, `test-180.sh`, `dfgt_bridge.py`, v0.8 e v0.13. O arquivo `shifter.json` permanece na raiz porque experimentos legados usam `Path.home()/dfgt-bridge/shifter.json`. O log anterior foi preservado em `captures/legacy/`, com link no caminho antigo. Esses launchers continuam apontando para o bridge Xbox legado; não foram redirecionados ao novo FFB.
+Links relativos na raiz preservam os nomes de `launch-dirt5.sh`, `test-180.sh`, `dfgt_bridge.py`, v0.8 e v0.13. O arquivo `shifter.json` permanece na raiz porque experimentos legados usam `Path.home()/dfgt-bridge/shifter.json`. O log anterior foi preservado em `captures/legacy/`, com link local no caminho antigo; log e esse link ficam fora do Git. Esses launchers continuam apontando para o bridge Xbox legado; não foram redirecionados ao novo FFB.
 
 Os conteúdos movidos foram conferidos por SHA-256. Consulte [o mapa completo](docs/REORGANIZATION.json) e [a análise de caminhos](docs/DEVELOPMENT.md). O manifesto da auditoria original continua sendo um registro histórico, com os nomes e hashes originais.
 

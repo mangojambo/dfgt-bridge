@@ -315,6 +315,39 @@ class CaptureTests(unittest.TestCase):
                          (13, 0x12345678, 0, 0x54))
         self.assertEqual(describe_uhid(b'bad')['event_type'], None)
 
+    def test_timing_is_measured_but_does_not_drive_replay_clock(self):
+        self.constant()
+        self.finish()
+        values = self.load()
+        for value in values:
+            if value['kind'] == 'step':
+                self.assertGreaterEqual(value['timing']['processing_ns'], 0)
+                value['timing'] = dict(processing_ns=1_000_000, delivery_ns=1_000_000)
+        self.rewrite(values)
+        self.assertTrue(replay(self.path)['complete'])
+
+    def test_identical_force_commands_still_get_distinct_capture_records(self):
+        self.constant()
+        first = self.pid(bytes.fromhex('5501803e'), via_output=True)
+        second = self.pid(bytes.fromhex('5501803e'), via_output=True)
+        self.assertEqual(first['transport_delta']['writes'], 1)
+        self.assertEqual(second['transport_delta']['writes'], 1)
+        self.assertEqual(first['uploads'], 0)
+        self.assertEqual(second['uploads'], 0)
+        self.finish()
+        self.assertTrue(replay(self.path)['complete'])
+
+    def test_pid_state_notifications_only_on_changes(self):
+        self.step('tick', ms=1)  # Snapshot inicial.
+        unchanged = self.step('tick', ms=2)
+        self.assertEqual(unchanged['writes_hex'], [])
+        self.constant()
+        paused = self.pid(bytes.fromhex('5005'))
+        self.assertEqual(paused['pid_state_hex'], '500301')
+        self.assertEqual([struct.unpack_from('=I', bytes.fromhex(h))[0] for h in paused['writes_hex']], [14, 12])
+        self.finish()
+        self.assertTrue(replay(self.path)['complete'])
+
     def test_clock_rollback_and_invalid_samples_are_rejected(self):
         self.step('tick', ms=1)
         with self.assertRaises(ValueError):

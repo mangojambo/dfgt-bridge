@@ -3,6 +3,7 @@
 import hashlib
 import json
 import gzip
+import time
 from pathlib import Path
 
 SCHEMA = 'dfgt-bridge-passive'
@@ -87,7 +88,9 @@ class Recorder:
         self.session, self.writer, self.send = session, writer, send
 
     def dispatch(self, action, data, timestamp_ns):
+        started = time.perf_counter_ns()
         result = self.session.apply(action, data, timestamp_ns)
+        processed = time.perf_counter_ns()
         sent = 0
         error = None
         try:
@@ -100,8 +103,11 @@ class Recorder:
             error = type(exc).__name__ + ': ' + str(exc)
             raise
         finally:
+            delivered = time.perf_counter_ns()
             if self.writer is not None:
                 self.writer.append(dict(kind='step', action=action, data=data,
                                         timestamp_ns=timestamp_ns, result=result,
                                         delivery=dict(mode='virtual' if self.send else 'simulated',
-                                                      sent=sent, error=error)))
+                                                      sent=sent, error=error),
+                                        timing=dict(processing_ns=processed-started,
+                                                    delivery_ns=delivered-processed)))

@@ -41,6 +41,10 @@ def replay(path):
                                            if result.get(k) != record['result'].get(k))
                         raise ValueError(f'Replay divergente no registro {record["seq"]}: {divergent}')
                     delivery = record['delivery']
+                    timing = record['timing']
+                    if any(type(timing.get(key)) is not int or timing[key] < 0
+                           for key in ('processing_ns', 'delivery_ns')):
+                        raise ValueError('Medição de latência inválida')
                     if delivery['mode'] not in ('virtual', 'simulated') or not isinstance(delivery['sent'], int):
                         raise ValueError('Entrega de respostas inválida')
                     if not 0 <= delivery['sent'] <= len(result['writes_hex']):

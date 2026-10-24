@@ -10,12 +10,14 @@ import csv
 import math
 from pathlib import Path
 import struct
+import sys
 import time
 from types import SimpleNamespace
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'src'))
 BASE = ROOT / 'reference/v0.8/dfgt_uhid_g29_probe_v08_driving.py'
 LIVE = ROOT / 'reference/v0.13/dfgt_uhid_g29_ffb_v013_live.py'
 FIXTURES = ROOT / 'tests/fixtures/dirt5'
@@ -52,7 +54,11 @@ def load_reviewed_definitions(path, physical_mock=False):
     return SimpleNamespace(**namespace)
 
 
-M = load_reviewed_definitions(LIVE, physical_mock=True)
+from dfgt_bridge.ffb.effects import PIDPassive, PIDSteeringBridge
+from dfgt_bridge.ffb.safety import ConstantOutput
+
+M = SimpleNamespace(PIDPassive=PIDPassive, PIDSteeringBridge=PIDSteeringBridge,
+                    PhysicalConstantMotor=ConstantOutput)
 
 
 class FakeDevice:

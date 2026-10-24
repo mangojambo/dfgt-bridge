@@ -4,6 +4,7 @@ import hashlib
 import json
 import gzip
 import time
+import errno
 from pathlib import Path
 
 SCHEMA = 'dfgt-bridge-passive'
@@ -32,9 +33,22 @@ def implementation_hash():
 
 class CaptureWriter:
     def __init__(self, path, metadata):
-        self.file = (gzip.open(path, 'xt', encoding='utf-8', compresslevel=1)
-                     if str(path).endswith('.gz') else
-                     open(path, 'x', encoding='utf-8', buffering=131072))
+        try:
+            self.file = (gzip.open(path, 'xt', encoding='utf-8', compresslevel=1)
+                         if str(path).endswith('.gz') else
+                         open(path, 'x', encoding='utf-8', buffering=131072))
+        except FileExistsError:
+            target = Path(path)
+            suffix = '.jsonl.gz' if target.name.endswith('.jsonl.gz') else target.suffix
+            stem = target.name[:-len(suffix)] if suffix else target.name
+            index = 2
+            alternative = target.with_name(f'{stem}-{index}{suffix}')
+            while alternative.exists():
+                index += 1
+                alternative = target.with_name(f'{stem}-{index}{suffix}')
+            raise FileExistsError(errno.EEXIST,
+                                  f'Captura já existe e foi preservada. Use --capture "{alternative}" '
+                                  '(nome sugerido; nenhum arquivo alternativo foi criado)', str(path)) from None
         self.sequence = 0
         self.previous = '0' * 64
         try:

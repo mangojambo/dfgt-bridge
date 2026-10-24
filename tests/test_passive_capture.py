@@ -283,6 +283,23 @@ class CaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'incompatível'):
                 replay(self.path)
 
+    def test_existing_capture_suggests_unused_name_without_creating_or_overwriting(self):
+        for name in ('existing.jsonl', 'existing.jsonl.gz'):
+            with self.subTest(name=name):
+                path = Path(self.directory) / name
+                suffix = '.jsonl.gz' if name.endswith('.gz') else '.jsonl'
+                second = path.with_name('existing-2'+suffix)
+                third = path.with_name('existing-3'+suffix)
+                path.write_bytes(b'original bytes')
+                second.write_bytes(b'also preserved')
+                with self.assertRaises(FileExistsError) as caught:
+                    CaptureWriter(path, {})
+                self.assertIn('foi preservada', str(caught.exception))
+                self.assertIn(str(third), str(caught.exception))
+                self.assertEqual(path.read_bytes(), b'original bytes')
+                self.assertEqual(second.read_bytes(), b'also preserved')
+                self.assertFalse(third.exists())
+
     def test_gzip_capture_is_streamed_and_replay_checks_simulated_actions(self):
         path = Path(self.directory) / 'compressed.jsonl.gz'
         writer = CaptureWriter(path, self.session.metadata())

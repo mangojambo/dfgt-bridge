@@ -287,7 +287,6 @@ class OfflineAudit(unittest.TestCase):
         motor.tick(32767)
         self.assertLessEqual(abs(motor.last_sent), motor.cap)
 
-    @unittest.expectedFailure
     def test_gap_unchanged_output_does_not_repeat_upload(self):
         motor, dev = self.motor()
         for _ in range(3):  # Deixa o slew inicial estabilizar.

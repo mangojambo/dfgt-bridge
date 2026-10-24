@@ -31,7 +31,7 @@ class ConstantOutput:
     def __init__(self, dev=None, strength_percent=12, rate_hz=45, clock=time.monotonic,
                  boost=1.0, periodic_boost=1.0, max_strength_percent=60,
                  test_limit_s=120, condition_headroom=0.0):
-        dev = MockBackend() if dev is None else dev
+        dev = MockBackend(clock=clock) if dev is None else dev
         if (dev.info.vendor, dev.info.product) != (0x046d, 0xc29a):
             raise RuntimeError('FFB rejeitado: fonte física não é DFGT 046d:c29a')
         if FF_CONSTANT not in dev.capabilities().get(EV_FF, []):
@@ -62,6 +62,11 @@ class ConstantOutput:
         self.last_tick = -1e9
         self.last_sent = 0
         self.playing = False
+        self.closed = False
+        self.uploaded_signature = None
+        self.last_play = None
+        self.play_requests = 0
+        self.renewals = 0
         self.writes = 0
         self.peak = 0
         self.peak_input = 0
@@ -83,6 +88,8 @@ class ConstantOutput:
         return self.strength_percent
 
     def set_enabled(self, enabled):
+        if enabled and self.closed:
+            raise ValueError('Saída encerrada exige nova instância')
         self.enabled = bool(enabled)
         if not self.enabled:
             self.stop()
@@ -92,6 +99,8 @@ class ConstantOutput:
         return ConstantForce(level=level, effect_id=self.id, duration_ms=self.deadline_ms)
 
     def tick(self, normalized_level):
+        if self.closed:
+            return
         now = self.clock()
         if not math.isfinite(now):
             self.set_enabled(False)
@@ -99,6 +108,10 @@ class ConstantOutput:
         if not self.enabled:
             self.stop()
             return
+        if self.playing and now-self.last_play >= self.deadline_ms/1000:
+            # Backend expirado durante uma lacuna: retomar pelo slew desde 0.
+            self.playing = False
+            self.last_sent = 0
         if self.expired or (self.first_active is not None and
                             now - self.first_active >= self.test_limit_s):
             if not self.expired:
@@ -151,16 +164,25 @@ class ConstantOutput:
         if not math.isfinite(now):
             self.set_enabled(False)
             raise ValueError('Relógio de saída deve ser finito')
-        new_id = self.dev.upload_effect(self._effect(level))
-        if self.id >= 0 and new_id != self.id:
-            raise RuntimeError('Driver não reutilizou slot FFB; encerrando por segurança')
-        self.id = new_id
-        self.dev.write(EV_FF, self.id, 1)
-        self.dev.syn()
+        signature = (level, self.deadline_ms, 0x4000)
+        changed = self.uploaded_signature != signature or self.id < 0
+        if changed:
+            new_id = self.dev.upload_effect(self._effect(level))
+            if self.id >= 0 and new_id != self.id:
+                raise RuntimeError('Driver não reutilizou slot FFB; encerrando por segurança')
+            self.id = new_id
+            self.uploaded_signature = signature
+            self.writes += 1
+        renew = self.playing and now-self.last_play >= self.deadline_ms/2000
+        if changed or not self.playing or renew:
+            self.dev.write(EV_FF, self.id, 1)
+            self.dev.syn()
+            self.play_requests += 1
+            self.renewals += int(renew and not changed)
+            self.last_play = now
         self.playing = True
         self.last_sent = level
         self.peak = max(self.peak, abs(level))
-        self.writes += 1
         self.last_tick = now
 
     def stop(self):
@@ -170,8 +192,11 @@ class ConstantOutput:
             self.dev.syn()
         self.playing = False
         self.last_sent = 0
+        self.last_play = None
 
     def close(self):
+        self.closed = True
+        self.enabled = False
         try:
             self.stop()
         finally:
@@ -180,3 +205,4 @@ class ConstantOutput:
                     self.dev.erase_effect(self.id)
                 finally:
                     self.id = -1
+                    self.uploaded_signature = None

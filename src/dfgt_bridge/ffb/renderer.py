@@ -105,11 +105,13 @@ def condition_force(effect, motion, *, velocity_reference=2.0,
     if not all(math.isfinite(v) and v > 0 for v in (
             velocity_reference, acceleration_reference)):
         raise ValueError('Escalas de movimento devem ser finitas e positivas')
+    p = effect_projection(effect)
+    if p == 0:
+        return 0.0
     kind = effect['kind']
     metric = {9: motion.position, 10: motion.velocity / velocity_reference,
               11: motion.acceleration / acceleration_reference,
               12: motion.velocity / velocity_reference}[kind]
-    p = effect_projection(effect)
     delta = p * metric - signed_unit(effect['center'])
     deadband = unsigned_unit(effect['deadband'])
     if delta > deadband:
@@ -121,6 +123,10 @@ def condition_force(effect, motion, *, velocity_reference=2.0,
         coefficient = signed_unit(effect['coeff_neg'])
         saturation = unsigned_unit(effect['sat_neg'])
     else:
+        return 0.0
+    # Uma métrica muito grande pode exceder float após sua normalização.
+    # Zero coeficiente/saturação continuam exatamente zero, sem 0*inf→NaN.
+    if coefficient == 0 or saturation == 0:
         return 0.0
     response = coefficient * (math.copysign(1.0, distance) if kind == 12 else distance)
     response = max(-saturation, min(saturation, response))

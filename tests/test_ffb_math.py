@@ -206,6 +206,23 @@ class ConditionTests(MathVectors):
             with self.assertRaises(ValueError):
                 condition_force(effect, MotionState(0), acceleration_reference=invalid)
 
+    def test_zero_coefficients_stay_zero_even_when_metric_scaling_overflows(self):
+        for kind in (10, 11, 12):
+            effect = self.condition(kind, positive=0, negative=0)
+            for sign in (-1, 1):
+                motion = MotionState(0, sign*1e308, sign*1e308)
+                self.assertEqual(condition_force(effect, motion, velocity_reference=1e-308,
+                                                 acceleration_reference=1e-308), 0)
+            effect['coeff_pos'] = 32767
+            self.assertEqual(condition_force(effect, MotionState(0, 1e308, 1e308),
+                                             velocity_reference=1e-308,
+                                             acceleration_reference=1e-308), -32767)
+
+    def test_orthogonal_condition_is_zero_even_with_large_center_and_metrics(self):
+        effect = self.condition(10, center=-32768, direction=0)
+        self.assertEqual(condition_force(effect, MotionState(1e308, 1e308),
+                                         velocity_reference=1e-308), 0)
+
 
 class MotionTests(unittest.TestCase):
     def test_derivatives_use_actual_sample_interval(self):
@@ -357,6 +374,18 @@ class EnvelopeTests(MathVectors):
         for kind, values in vectors.items():
             for phase, expected in zip((0, .25, .5, .75), values):
                 self.assertAlmostEqual(periodic_wave(kind, phase), expected)
+
+    def test_nonfinite_clock_is_rejected_before_effect_start(self):
+        self.now = math.nan
+        with self.assertRaises(ValueError):
+            self.constant()
+        self.assertFalse(any(item['running'] for item in self.bridge.effects.values()))
+
+    def test_injected_motion_does_not_bypass_clock_validation(self):
+        self.constant()
+        self.now = math.inf
+        with self.assertRaises(ValueError):
+            self.bridge.components(motion=MotionState(0))
 
 
 class MixingTests(MathVectors):

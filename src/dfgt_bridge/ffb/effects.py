@@ -128,6 +128,8 @@ class PIDSteeringBridge(PIDPassive):
         op = packet[0]
         self.pid_counts[f'0x{op:02x}'] += 1
         now = self.clock()
+        if not math.isfinite(now):
+            raise ValueError('Relógio PID deve ser finito')
         if op == 0x50 and len(packet) >= 2:
             ctrl = packet[1]
             if ctrl == 4:  # device reset
@@ -221,6 +223,8 @@ class PIDSteeringBridge(PIDPassive):
 
     def components(self, position_raw=8192, *, motion=None):
         now = self.clock()
+        if not math.isfinite(now):
+            raise ValueError('Relógio PID deve ser finito')
         motion = self.motion_estimator.sample(position_raw, now) if motion is None else motion
         result = {key: 0.0 for key in OUTPUT_COMPONENTS}
         contributions = {key: [] for key in OUTPUT_COMPONENTS}

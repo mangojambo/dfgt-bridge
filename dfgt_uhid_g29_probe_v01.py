@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""DFGT -> UHID G29 input probe for SteamOS.
+
+Experimental proof of concept. Creates a Linux HID device, not a full G29.
+No FFB implementation, no kernel changes and no persistent installation.
+Run with sudo because /dev/uhid is root-only; exit with Ctrl+C.
+
+UHID creation approach inspired by SameBrain-Chris/uhid-sim-relay (MIT):
+https://github.com/SameBrain-Chris/uhid-sim-relay
+"""
+import argparse
+import os
+import select
+import struct
+import time
+from evdev import InputDevice, ecodes as e
+
+SOURCE = '/dev/input/by-id/usb-046d_Driving_Force_GT-event-joystick'
+UHID_CREATE2 = 11
+UHID_DESTROY = 1
+UHID_INPUT2 = 12
+UHID_GET_REPORT = 9
+UHID_GET_REPORT_REPLY = 10
+UHID_SET_REPORT = 13
+UHID_SET_REPORT_REPLY = 14
+UHID_OUTPUT = 6
+UHID_DATA_MAX = 4096
+
+# HID Button 1..16 corresponds to the wheel's event keys 288..303;
+# 17..25 are the additional DFGT keys 704..712.
+BUTTON_CODES = list(range(288, 304)) + list(range(704, 713))
+BUTTON_BITS = {code: bit for bit, code in enumerate(BUTTON_CODES)}
+
+
+def descriptor():
+    """Generic Desktop Joystick: X16, Z8, Rz8, Y8, hat 4, 25 buttons."""
+    return bytes([
+        0x05, 0x01,             # Usage Page: Generic Desktop
+        0x09, 0x04,             # Usage: Joystick
+        0xA1, 0x01,             # Collection: Application
+        0x09, 0x01,             # Usage: Pointer
+        0xA1, 0x00,             # Collection: Physical
+        0x09, 0x30,             # Usage: X (steering)
+        0x15, 0x00,             # Logical min 0
+        0x27, 0xFF, 0xFF, 0x00, 0x00, # Logical max 65535 (32-bit)
+        0x75, 0x10,             # 16 bits
+        0x95, 0x01,             # 1 axis
+        0x81, 0x02,             # Input Data,Var,Abs
+        0x09, 0x32,             # Z: accelerator
+        0x09, 0x35,             # Rz: brake
+        0x09, 0x31,             # Y: clutch
+        0x15, 0x00,
+        0x26, 0xFF, 0x00,       # Logical max 255
+        0x75, 0x08,
+        0x95, 0x03,
+        0x81, 0x02,
+        0xC0,                   # End physical collection
+        0x09, 0x39,             # Hat switch
+        0x15, 0x00,
+        0x25, 0x07,
+        0x35, 0x00,
+        0x46, 0x3B, 0x01,       # Physical max 315 degrees
+        0x65, 0x14,             # Unit: english rotation degrees
+        0x75, 0x04,
+        0x95, 0x01,
+        0x81, 0x42,             # Data,Var,Abs,Null State (8=neutral)
+        0x65, 0x00,             # Reset unit
+        0x75, 0x04,
+        0x95, 0x01,
+        0x81, 0x03,             # Constant padding
+        0x05, 0x09,             # Usage Page Buttons
+        0x19, 0x01,
+        0x29, 0x19,             # 25 buttons
+        0x15, 0x00,
+        0x25, 0x01,
+        0x75, 0x01,
+        0x95, 0x19,
+        0x81, 0x02,
+        0x75, 0x01,
+        0x95, 0x07,             # 7 unused bits
+        0x81, 0x03,
+        0xC0,                   # End application collection
+    ])
+
+
+def create_device(fd, name, vid, pid):
+    rd = descriptor()
+    name_bytes = name.encode('utf-8')[:127].ljust(128, b'\0')
+    body = name_bytes + bytes(64) + bytes(64)
+    # bus=BUS_USB (0x03) is a virtual HID transport identity, not a real USB device.
+    body += struct.pack('<HHIIII', len(rd), 0x03, vid, pid, 0x0110, 0)
+    os.write(fd, struct.pack('<I', UHID_CREATE2) + body + rd)
+
+
+def report(state):
+    steering, accel, brake, hatx, haty, pressed = state
+    x = min(65535, max(0, round(steering * 65535 / 16383)))
+    hat = {
+        (0, -1): 0, (1, -1): 1, (1, 0): 2, (1, 1): 3,
+        (0, 1): 4, (-1, 1): 5, (-1, 0): 6, (-1, -1): 7,
+    }.get((hatx, haty), 8)
+    buttons = 0
+    for code in pressed:
+        if code in BUTTON_BITS:
+            buttons |= 1 << BUTTON_BITS[code]
+    return struct.pack('<HBBBBI', x, accel, brake, 255, hat, buttons)
+
+
+def send_input(fd, data):
+    if len(data) > UHID_DATA_MAX:
+        raise ValueError('HID report too large')
+    os.write(fd, struct.pack('<IH', UHID_INPUT2, len(data)) + data +
+             bytes(UHID_DATA_MAX - len(data)))
+
+
+def respond_to_kernel(fd, event):
+    if len(event) < 4:
+        return
+    event_type = struct.unpack_from('<I', event)[0]
+    if event_type == UHID_GET_REPORT and len(event) >= 8:
+        request_id = struct.unpack_from('<I', event, 4)[0]
+        # This input-only test has no feature reports.
+        os.write(fd, struct.pack('<IIHH', UHID_GET_REPORT_REPLY,
+                                 request_id, 95, 0))  # EOPNOTSUPP
+    elif event_type == UHID_SET_REPORT and len(event) >= 8:
+        request_id = struct.unpack_from('<I', event, 4)[0]
+        os.write(fd, struct.pack('<IIH', UHID_SET_REPORT_REPLY,
+                                 request_id, 95))
+    # UHID_OUTPUT intentionally ignored: no force feedback forwarded.
+
+
+def run(args):
+    source = InputDevice(SOURCE)
+    fd = -1
+    grabbed = False
+    try:
+        info_x = source.absinfo(e.ABS_X)
+        steer = info_x.value
+        accel = source.absinfo(e.ABS_Y).value
+        brake = source.absinfo(e.ABS_Z).value
+        hatx, haty = 0, 0
+        pressed = set()
+        vid, pid = (0x046d, 0xc24f) if args.identity == 'g29' else (0x1209, 0xd029)
+        name = ('Logitech G29 Driving Force Racing Wheel' if args.identity == 'g29'
+                else 'DFGT UHID Steering Wheel Probe')
+        fd = os.open('/dev/uhid', os.O_RDWR | os.O_CLOEXEC | os.O_NONBLOCK)
+        create_device(fd, name, vid, pid)
+        if args.grab:
+            source.grab()
+            grabbed = True
+        print(f'DFGT físico: {source.name} (046d:c29a)')
+        print(f'UHID virtual: {name} ({vid:04x}:{pid:04x})')
+        print('HID: direção X16, acelerador Z8, freio Rz8, embreagem Y8 fixa, hat, 25 botões')
+        print('Sem force feedback virtual. G920 permanece intocado.')
+        print(f'Grab do evdev físico: {"SIM" if grabbed else "NÃO"}')
+        print('Ctrl+C remove o dispositivo virtual.', flush=True)
+        state = (steer, accel, brake, hatx, haty, pressed)
+        send_input(fd, report(state))
+        poller = select.poll()
+        poller.register(source.fd, select.POLLIN)
+        poller.register(fd, select.POLLIN)
+        last_log = 0.0
+        dirty = False
+        while True:
+            for ready_fd, _ in poller.poll(250):
+                if ready_fd == fd:
+                    while True:
+                        try:
+                            data = os.read(fd, 4380)
+                        except BlockingIOError:
+                            break
+                        if not data:
+                            break
+                        respond_to_kernel(fd, data)
+                elif ready_fd == source.fd:
+                    for ev in source.read():
+                        if ev.type == e.EV_ABS:
+                            if ev.code == e.ABS_X:
+                                steer = ev.value
+                            elif ev.code == e.ABS_Y:
+                                accel = ev.value
+                            elif ev.code == e.ABS_Z:
+                                brake = ev.value
+                            elif ev.code == e.ABS_HAT0X:
+                                hatx = ev.value
+                            elif ev.code == e.ABS_HAT0Y:
+                                haty = ev.value
+                            else:
+                                continue
+                            dirty = True
+                        elif ev.type == e.EV_KEY and ev.value in (0, 1):
+                            if ev.value:
+                                pressed.add(ev.code)
+                            else:
+                                pressed.discard(ev.code)
+                            dirty = True
+                        elif ev.type == e.EV_SYN and ev.code == e.SYN_REPORT and dirty:
+                            state = (steer, accel, brake, hatx, haty, pressed)
+                            send_input(fd, report(state))
+                            dirty = False
+                            if args.monitor and time.monotonic() - last_log >= 0.25:
+                                hid_x = round(steer * 65535 / 16383)
+                                print(f'DFGT X={steer:5d} => HID X={hid_x:5d} | '
+                                      f'Z(acel)={accel:3d} Rz(freio)={brake:3d} '
+                                      f'Y(emb)=255 | botões={len(pressed)}', flush=True)
+                                last_log = time.monotonic()
+    finally:
+        if grabbed:
+            try:
+                source.ungrab()
+            except OSError:
+                pass
+        if fd >= 0:
+            try:
+                os.write(fd, struct.pack('<I', UHID_DESTROY))
+            except OSError:
+                pass
+            os.close(fd)
+        source.close()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='DFGT UHID G29 HID probe (sem FFB)')
+    parser.add_argument('--identity', choices=['generic', 'g29'], default='g29',
+                        help='Identidade virtual; g29 é experimental (padrão)')
+    parser.add_argument('--grab', action='store_true',
+                        help='Oculta eventos evdev físicos de outros leitores durante o teste')
+    parser.add_argument('--monitor', action='store_true')
+    args = parser.parse_args()
+    try:
+        run(args)
+    except KeyboardInterrupt:
+        print('\nUHID virtual encerrado.')
+    except PermissionError as exc:
+        parser.error(f'{exc}. /dev/uhid é root-only: teste com sudo.')

@@ -1,0 +1,232 @@
+{
+  "audit_recorded_utc": "2026-10-24T15:05:43.232200+00:00",
+  "kernel": {
+    "system": "Linux",
+    "node": "steamdeck",
+    "release": "7.2.7-valve2-2-neptune-72-g31504582a073",
+    "version": "#1 SMP PREEMPT_DYNAMIC Fri, 23 Oct 2026 20:44:20 +0000",
+    "machine": "x86_64",
+    "processor": ""
+  },
+  "physical_hid_sysfs": "/sys/bus/hid/devices/0003:046D:C29A.000E",
+  "physical_driver": "/sys/bus/hid/drivers/logitech",
+  "range_degrees": 900,
+  "ff_bitmap_raw": "300040000 0",
+  "ff_bits": [
+    82,
+    96,
+    97
+  ],
+  "ff_names": [
+    "FF_CONSTANT",
+    "FF_GAIN",
+    "FF_AUTOCENTER"
+  ],
+  "physical_devnode_available": false,
+  "evdev_effect_slots": "not queried: device node unavailable",
+  "kernel_source_identity": "upstream reference only; exact Valve source not available locally",
+  "preexisting_files": {
+    "dfgt_bridge.py": {
+      "sha256": "75e7a1313b6b2c4d0b048f69387c82e7f18694e8915b912e8b8eecb87b6256f3",
+      "bytes": 8938
+    },
+    "dfgt_bridge.py.bak": {
+      "sha256": "9564b31e29df2642f76abca5f1d6fa0e79d9b7dcbd12e8c2f9fd94bddba8b02c",
+      "bytes": 3825
+    },
+    "dfgt_bridge_pre_v03.py": {
+      "sha256": "d48658ceabd61b22dc737b0ae02d79bc9843cdf7540cf332b4054e49306d91fe",
+      "bytes": 7641
+    },
+    "dfgt_bridge_v01.py": {
+      "sha256": "7ba06a1a62470f8f97129d59e72faa9b709ad442417b028d2df205ccdcb5243d",
+      "bytes": 3825
+    },
+    "dfgt_bridge_v02_backup.py": {
+      "sha256": "0c226aad28eb784631c43e5293babbc0436b3a7d52bf65ca862cbab770fff680",
+      "bytes": 7659
+    },
+    "dfgt_bridge_v02_before_xy.py": {
+      "sha256": "205277e892b23ae75670d4ebe0ce75807b187d9e588debbd884656671de64c73",
+      "bytes": 7641
+    },
+    "dfgt_ffb_physical_test_v01.py": {
+      "sha256": "e28fda2fdfec1bf549342c1cd2c34b9aa0bed963a0fc81453787e7b01b0c7fe0",
+      "bytes": 2566
+    },
+    "dfgt_ffb_physical_test_v02.py": {
+      "sha256": "b71c2d559d876431a083ba190d0b42bff518f82c475ef944655fd8558f7ca250",
+      "bytes": 2734
+    },
+    "dfgt_ffb_physical_test_v03.py": {
+      "sha256": "fb5aca8762b844e2c19242334fd33a399eb59a9b3a4bfa7890f8403b71827ea8",
+      "bytes": 2981
+    },
+    "dfgt_g29_probe_v01.py": {
+      "sha256": "ce7877151b2e963800890fdc93e8c42c1da8e269901a72a1f19cf6e63815338d",
+      "bytes": 4121
+    },
+    "dfgt_g29_probe_v02.py": {
+      "sha256": "8565da676480d705aa0ae549c7514ae28500830bba7ac2063ef1e8ddfc6258c9",
+      "bytes": 4335
+    },
+    "dfgt_uhid_g29_ffb_v010_boost.py": {
+      "sha256": "0c894f2d3185d7cfa78afb3294621a1b6f3113786e43cf1bebf800d7215434d4",
+      "bytes": 45662
+    },
+    "dfgt_uhid_g29_ffb_v011_spring.py": {
+      "sha256": "11705617b8ff292d09e466f9f87bb0fcf0b44b870518644b5605e5ca25977c74",
+      "bytes": 50484
+    },
+    "dfgt_uhid_g29_ffb_v012_impact.py": {
+      "sha256": "baaca6fde6dac06df29cda23fdd1d332478efef072b49926e971fb17f069c90e",
+      "bytes": 59758
+    },
+    "dfgt_uhid_g29_ffb_v013_live.py": {
+      "sha256": "3e291e60419af26f2c8f496c98c938a85572e014953edbd56656df14d53f8dea",
+      "bytes": 76822
+    },
+    "dfgt_uhid_g29_ffb_v09.py": {
+      "sha256": "15ba786daf25eba7f3c315bd0bce36a94e84e7330d04ebf27ee0be453e3e0d99",
+      "bytes": 43933
+    },
+    "dfgt_uhid_g29_g920_probe_v07.py": {
+      "sha256": "c77ec369cc1510b8b78e2f1674047d986b1f62962a26b64cf28a24d7269b8a15",
+      "bytes": 29749
+    },
+    "dfgt_uhid_g29_g920_probe_v07_fix.py": {
+      "sha256": "79a06980069673f8e9a1e04b026ed822ef375d8cc3188baee6c90dc196053b61",
+      "bytes": 31672
+    },
+    "dfgt_uhid_g29_probe_v01.py": {
+      "sha256": "3977eaf2a4f942e6dd2e67b78326146bf584b3247279c455de5fa90cf1ef994a",
+      "bytes": 9392
+    },
+    "dfgt_uhid_g29_probe_v02.py": {
+      "sha256": "d2774768f9b8a943532a9be408772594992116da53d8843e74799e29f89663fa",
+      "bytes": 12189
+    },
+    "dfgt_uhid_g29_probe_v03.py": {
+      "sha256": "15fd4949fd13c9e35bb3f9561eb7ea5e3007908d031bd7e87ee381a0ca351d4c",
+      "bytes": 14701
+    },
+    "dfgt_uhid_g29_probe_v04.py": {
+      "sha256": "38f14c3888bcf32b7e508975515708127c37018ca78dcf720279060c8af6b7ee",
+      "bytes": 16793
+    },
+    "dfgt_uhid_g29_probe_v05.py": {
+      "sha256": "47eed44f2cb606c6842c6392e7a904ca11f7dc547d8ff0e6704b2d95e5bd80f4",
+      "bytes": 22164
+    },
+    "dfgt_uhid_g29_probe_v05_fix.py": {
+      "sha256": "e4c4a4248c83f1c749d0f2daa9b17d31feae627af5ea841f6bdfad0f23a1f6c0",
+      "bytes": 23838
+    },
+    "dfgt_uhid_g29_probe_v06_pidff.py": {
+      "sha256": "6fc12738b4455e50f18e2b37b0e8cb4199e410cee3a0ffc350ee09c8d1641c09",
+      "bytes": 28056
+    },
+    "dfgt_uhid_g29_probe_v08_driving.py": {
+      "sha256": "630d78fa050f91acdc443f40ad4ac78be1b0dcf1c750f87dc0fbe5ac9e1f429a",
+      "bytes": 31219
+    },
+    "ffb-corrida-20261024-035050.csv": {
+      "sha256": "c3b008f1dc630ff55bc85eae7b4a350f8c4af11775942e5badeb7b7a6bfc5e30",
+      "bytes": 1508
+    },
+    "ffb-pid-20261024-040456.csv": {
+      "sha256": "e653df879445843de2c83b54b895b5abbef0a0ecaea162b583a4636763b206eb",
+      "bytes": 51
+    },
+    "ffb-pid-fix-20261024-040657.csv": {
+      "sha256": "fe87c9b566dd0555a7cedbd67d6dea462177b4a0cc1d56389c4fa7851ddd30cd",
+      "bytes": 914
+    },
+    "ffb-pid-fix-20261024-041217.csv": {
+      "sha256": "5364943329c1105669a6ebde5f8db24faac72f28eab3ae47f2a64866ca04b48d",
+      "bytes": 2507
+    },
+    "ffb-pid-v06-20261024-042712.csv": {
+      "sha256": "b003f33201b6ce599084243953a3dfc461225287ef3562e04f6e9164db2f0b7c",
+      "bytes": 1135
+    },
+    "launch-dirt5.log": {
+      "sha256": "279212a805da66292a1a2359f60669433c9043afa468b139a029e6d31e1ea51c",
+      "bytes": 451
+    },
+    "launch-dirt5.sh": {
+      "sha256": "529b372157f3da4c595d9c1c47a63b46ee6886b8d97373b6d8545d30661f2b6b",
+      "bytes": 1998
+    },
+    "shifter.json": {
+      "sha256": "6afdf09cd3da946ffeebb4e74b8fac13cc65fd71d670a709f52ad785f6e062c1",
+      "bytes": 31
+    },
+    "test-180.sh": {
+      "sha256": "be3c7dd8f4f9e9e545644d7d969eaa2cba81583b5da41889e00190936489f131",
+      "bytes": 1114
+    }
+  },
+  "captures": [
+    {
+      "file": "ffb-corrida-20261024-035050.csv",
+      "records": 31,
+      "report_counts": {
+        "OUTPUT:0x0d": 20,
+        "OUTPUT:0xf5": 9,
+        "OUTPUT:0xf8": 2
+      }
+    },
+    {
+      "file": "ffb-pid-20261024-040456.csv",
+      "records": 0,
+      "report_counts": {}
+    },
+    {
+      "file": "ffb-pid-fix-20261024-040657.csv",
+      "records": 19,
+      "report_counts": {
+        "OUTPUT:0x0d": 10,
+        "OUTPUT:0x50": 2,
+        "OUTPUT:0x59": 1,
+        "OUTPUT:0xf5": 5,
+        "OUTPUT:0xf8": 1
+      }
+    },
+    {
+      "file": "ffb-pid-fix-20261024-041217.csv",
+      "records": 58,
+      "report_counts": {
+        "OUTPUT:0x0d": 20,
+        "OUTPUT:0x50": 18,
+        "OUTPUT:0x59": 9,
+        "OUTPUT:0xf5": 9,
+        "OUTPUT:0xf8": 2
+      }
+    },
+    {
+      "file": "ffb-pid-v06-20261024-042712.csv",
+      "records": 24,
+      "report_counts": {
+        "GET_REPORT:0x56": 1,
+        "GET_REPORT:0x57": 1,
+        "OUTPUT:0x0d": 10,
+        "OUTPUT:0x50": 2,
+        "OUTPUT:0x59": 1,
+        "OUTPUT:0xf5": 5,
+        "OUTPUT:0xf8": 1,
+        "SET_REPORT:0x54": 1,
+        "SET_REPORT:0x59": 1,
+        "SET_REPORT:0x5b": 1
+      }
+    }
+  ],
+  "test_command": "python3 -B -m unittest discover -s tests -v",
+  "test_result": {
+    "total": 18,
+    "passed": 5,
+    "expected_failures": 13
+  },
+  "runtime_changes": false,
+  "physical_output_sent": false
+}

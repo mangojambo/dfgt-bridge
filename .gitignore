@@ -1,0 +1,40 @@
+# Metadados protegidos pelo ambiente; Git local usa .git-local/.
+.git-local/
+.agents/
+.aws/
+.codex/
+
+# Python / ferramentas / builds
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Configuração privada e temporários
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.tmp
+*.swp
+*~
+
+# Capturas de desenvolvimento (fixtures pequenas são versionadas em tests/).
+captures/**
+!captures/README.md
+*.log
+*.pcap
+*.pcapng
+*.usbmon
+*.bin
+*.zip
+*.tar*

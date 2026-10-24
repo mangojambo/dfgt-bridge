@@ -375,6 +375,17 @@ class EnvelopeTests(MathVectors):
             for phase, expected in zip((0, .25, .5, .75), values):
                 self.assertAlmostEqual(periodic_wave(kind, phase), expected)
 
+    def test_sine_zero_crossings_are_exact_without_residual_force(self):
+        self.assertEqual(periodic_wave(5, .5), 0)
+        self.assertEqual(periodic_wave(5, .5-1e-16), 0)
+
+    def test_sine_zero_does_not_change_rounding_of_simultaneous_force(self):
+        self.constant(1, gain=50)
+        block = self.create(5)
+        self.bridge.seen(bytes((0x5d, block)) + struct.pack('<HhHH', 32767, 0, 0, 100))
+        self.now = .15  # .15 % .1 não representa exatamente meio período.
+        self.assertEqual(self.bridge.raw_level(), round(.5))
+
     def test_nonfinite_clock_is_rejected_before_effect_start(self):
         self.now = math.nan
         with self.assertRaises(ValueError):

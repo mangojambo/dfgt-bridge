@@ -190,9 +190,16 @@ def ramp_level(effect, elapsed):
 
 def periodic_wave(kind, fraction):
     fraction %= 1.0
+    # Desvios menores que 1e-12 de ciclo em fronteiras vêm da aritmética
+    # de fase. No menor período (1 ms), isso é menos de 1 femtossegundo.
+    quarter = round(fraction*4)/4
+    if abs(fraction-quarter) <= 1e-12:
+        fraction = quarter % 1.0
     if kind == 4:
         return 1.0 if fraction < .5 else -1.0
     if kind == 5:
+        if fraction in (0, .25, .5, .75):
+            return {0: 0.0, .25: 1.0, .5: 0.0, .75: -1.0}[fraction]
         return math.sin(2*math.pi*fraction)
     if kind == 6:
         return 4*abs(fraction-.5)-1

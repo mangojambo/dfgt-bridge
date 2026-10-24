@@ -54,6 +54,8 @@ Quando A+F>D, a política do núcleo reduz A e F proporcionalmente para caber em
 
 Phase e Direction usam centésimos de grau; a fase é avaliada módulo o período antes de somar a fase inicial. Os vetores de onda acompanham new-lg4ff: Sine cruza zero em fase zero; Square começa positivo; Triangle começa no pico positivo; Saw Up começa negativo e Saw Down positivo. A correção de Triangle evita um desvio de quarto de período presente no renderer anterior. A taxa de amostragem física e aliasing não são resolvidos pela matemática da forma de onda.
 
+Fronteiras de quarto de ciclo dentro de 1e-12 de ciclo são estabilizadas e os zeros/picos de Sine são exatos. No menor período declarado, 1 ms, a janela corresponde a 1 femtossegundo. Isso evita que um resíduo de seno altere em 1 LSB o arredondamento de outro efeito simultâneo. As tolerâncias dos asserts antigos não foram ampliadas para isso.
+
 Comparações de implementação: [new-lg4ff, calculate_constant/ramp/periodic](https://github.com/berarma/new-lg4ff/blob/master/hid-lg4ff.c) e [lg4ff_userspace, mesmas funções](https://github.com/Kethen/lg4ff_userspace/blob/main/force_feedback.c). O segundo também mantém offset separado da magnitude envelopada; essas referências ajudam a verificar o cálculo, sem serem usadas como oráculo de todas as políticas de sobreposição.
 
 Os níveis absolutos e o ataque acima do sustain também são documentados em [DIENVELOPE](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee416625(v=vs.85)) e [Basic Concepts of Force Feedback](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee416225(v=vs.85)).

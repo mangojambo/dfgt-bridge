@@ -178,7 +178,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', default=SOURCE)
     parser.add_argument('--capture', metavar='CAPTURA.jsonl')
-    parser.add_argument('--gas-axis', choices=('z', 'y', 'both'), default='z')
+    parser.add_argument('--gas-axis', choices=('z', 'y', 'both'), default='y',
+                        help='Eixo virtual do acelerador: y corresponde à v0.8 usada no DiRT 5 (padrão)')
     parser.add_argument('--invert-gas', action='store_true')
     parser.add_argument('--strength', type=int, choices=range(0, 61), default=20, metavar='0..60',
                         help='Ganho da simulação; não controla o motor')

@@ -219,7 +219,6 @@ class OfflineAudit(unittest.TestCase):
         self.spring(saturation=16384)  # 25% do máximo unsigned 65535
         self.assertAlmostEqual(abs(self.bridge.raw_level(16383)), 8192, delta=2)
 
-    @unittest.expectedFailure
     def test_gap_direction_changes_constant_projection(self):
         block = self.constant()
         self.effect(block, direction=9000)

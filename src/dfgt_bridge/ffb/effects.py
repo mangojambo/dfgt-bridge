@@ -6,6 +6,8 @@ import math
 import struct
 import time
 
+from .renderer import ANGLE_MAX, effect_projection
+
 
 class PIDPassive:
     """Return PID feature handshake but NEVER forward force to a physical motor."""
@@ -98,7 +100,8 @@ class PIDSteeringBridge(PIDPassive):
                     condition_axis=-1, periodic_magnitude=0,
                     periodic_offset=0, periodic_phase=0, period_ms=0,
                     ramp_start=0, ramp_end=0, duration_ms=None,
-                    start_delay_ms=0, direction=0,
+                    start_delay_ms=0, direction=9000,
+                    axes_enabled=1, direction_enabled=False,
                     attack_level=0, attack_time=0, fade_level=0,
                     fade_time=0, started_at=None)
 
@@ -157,12 +160,18 @@ class PIDSteeringBridge(PIDPassive):
                 self.ignored[f'opcode_0x{op:02x}'] += 1
             return
         if op == 0x51 and len(packet) >= 18:
+            direction = struct.unpack_from('<H', packet, 14)[0]
+            if direction > ANGLE_MAX:
+                self.ignored['invalid_direction'] += 1
+                return
             item['gain'] = max(0.0, min(1.0, packet[11] / 100.0))
             duration = struct.unpack_from('<H', packet, 3)[0]
             # PID 0xffff é infinito; zero é uma duração finita de zero ms.
             item['duration_ms'] = None if duration == 0xFFFF else duration
             item['start_delay_ms'] = struct.unpack_from('<H', packet, 9)[0]
-            item['direction'] = struct.unpack_from('<H', packet, 14)[0]
+            item['direction'] = direction
+            item['axes_enabled'] = packet[13] & 3
+            item['direction_enabled'] = bool(packet[13] & 4)
         elif op == 0x52 and len(packet) >= 10:
             (item['attack_level'], item['fade_level'], item['attack_time'],
              item['fade_time']) = struct.unpack_from('<HHHH', packet, 2)
@@ -183,7 +192,7 @@ class PIDSteeringBridge(PIDPassive):
             item['ramp_end'] = round(packet[3] * 32767 / 255)
         elif op == 0x5d and len(packet) >= 10 and item['kind'] in (4, 5, 6, 7, 8):
             (item['periodic_magnitude'], item['periodic_offset'],
-             item['periodic_phase'], item['period_ms']) = struct.unpack_from('<hhHH', packet, 2)
+             item['periodic_phase'], item['period_ms']) = struct.unpack_from('<HhHH', packet, 2)
         elif op == 0x5a and len(packet) >= 4:
             effect_op = packet[2]
             if effect_op in (1, 2):
@@ -322,6 +331,8 @@ class PIDSteeringBridge(PIDPassive):
                     mag = min(32767, sat, round(coeff * min(1.,abs(velocity)/8000.)))
                     family, force = 'friction', -(1 if velocity > 0 else -1)*mag*gain
             if family is not None:
+                if kind not in (9, 10, 11, 12):
+                    force *= effect_projection(item)
                 result[family] += force
                 if force:
                     self.rendered_by_kind[PID_EFFECT_NAMES[kind]] += 1

@@ -206,15 +206,14 @@ class OfflineAudit(unittest.TestCase):
         self.now += .201
         self.assertEqual(self.bridge.raw_level(), 16384)
 
-    @unittest.expectedFailure
     def test_gap_condition_coefficient_sign_is_preserved(self):
         block = self.spring()
         positive = self.bridge.raw_level(12000)
         self.bridge.seen(bytes((0x53, block, 0)) + struct.pack(
-            '<hhhHHH', 0, -32767, -32767, 65535, 65535, 0))
+            # Full scale negativo é -32768, conforme Logical Minimum.
+            '<hhhHHH', 0, -32768, -32768, 65535, 65535, 0))
         self.assertEqual(self.bridge.raw_level(12000), -positive)
 
-    @unittest.expectedFailure
     def test_gap_unsigned_saturation_is_normalized(self):
         self.spring(saturation=16384)  # 25% do máximo unsigned 65535
         self.assertAlmostEqual(abs(self.bridge.raw_level(16383)), 8192, delta=2)

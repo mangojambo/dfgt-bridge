@@ -6,7 +6,7 @@ import math
 import struct
 import time
 
-from .renderer import ANGLE_MAX, effect_projection
+from .renderer import ANGLE_MAX, MotionEstimator, condition_force, effect_projection
 
 
 class PIDPassive:
@@ -56,8 +56,15 @@ class PIDSteeringBridge(PIDPassive):
     effect direction) cannot be faithfully reproduced on a DFGT single-axis
     EV_FF constant actuator; counters expose ignored reports explicitly.
     """
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, *, velocity_reference=2.0,
+                 acceleration_reference=4.0):
         super().__init__()
+        if not all(math.isfinite(v) and v > 0 for v in (
+                velocity_reference, acceleration_reference)):
+            raise ValueError('Escalas de movimento inválidas')
+        self.velocity_reference = velocity_reference
+        self.acceleration_reference = acceleration_reference
+        self.motion_estimator = MotionEstimator()
         self.clock = clock
         self.effects = {}
         self.gain = 1.0
@@ -68,16 +75,10 @@ class PIDSteeringBridge(PIDPassive):
         self.created_by_kind = Counter()
         self.rendered_by_kind = Counter()
         self.ignored = Counter()
-        self.spring_direction = -1
         self.spring_peak = 0
         self.spring_active_ticks = 0
         self.periodic_active_ticks = 0
         self.damper_active_ticks = 0
-        self.last_physical_pos = None
-        self.last_velocity_update = None
-        self.smoothed_velocity = 0.0
-        self.last_inertia_velocity = 0.0
-        self.smoothed_acceleration = 0.0
         self.component_peaks = Counter()
         self.component_ticks = Counter()
 
@@ -88,10 +89,7 @@ class PIDSteeringBridge(PIDPassive):
         self.paused = False
         self.last_command_time = -1e9
         self.armed = True
-        self.last_physical_pos = None
-        self.last_velocity_update = None
-        self.smoothed_velocity = 0.0
-        self.smoothed_acceleration = 0.0
+        self.motion_estimator.reset()
 
     def _new_effect(self, kind):
         return dict(kind=kind, level=0, running=False, gain=1.0,
@@ -213,29 +211,6 @@ class PIDSteeringBridge(PIDPassive):
         if item.get('running') and op in (0x51, 0x52, 0x53, 0x55, 0x58, 0x5d):
             self.last_command_time = now
 
-    def _motion(self, position_raw, now):
-        pos = max(-32767, min(32767, round((max(0, min(16383, position_raw)) - 8191.5) * 32767 / 8191.5)))
-        if self.last_velocity_update is None:
-            self.last_velocity_update = now
-            self.last_physical_pos = pos
-            return pos, 0.0, 0.0
-        dt = now - self.last_velocity_update
-        if .008 <= dt <= .25:
-            v = max(-150000., min(150000., (pos - self.last_physical_pos) / dt))
-            alpha = dt / (.045 + dt)
-            self.smoothed_velocity += alpha * (v - self.smoothed_velocity)
-            accel = max(-2000000., min(2000000.,
-                        (self.smoothed_velocity - self.last_inertia_velocity) / dt))
-            self.smoothed_acceleration += alpha * (accel - self.smoothed_acceleration)
-            self.last_inertia_velocity = self.smoothed_velocity
-            self.last_velocity_update, self.last_physical_pos = now, pos
-        elif dt > .25:
-            self.last_velocity_update, self.last_physical_pos = now, pos
-            self.last_inertia_velocity = 0.0
-            self.smoothed_velocity = 0.0
-            self.smoothed_acceleration = 0.0
-        return pos, self.smoothed_velocity, self.smoothed_acceleration
-
     def _envelope(self, item, elapsed):
         # Approximate HID PID envelope; effect magnitude ramps during attack
         # and fade. Lack of signed envelope fields precludes perfect parity.
@@ -251,9 +226,9 @@ class PIDSteeringBridge(PIDPassive):
             factor *= (1-t) + item['fade_level']/32767.0*t
         return max(0.0, min(1.0, factor))
 
-    def components(self, position_raw=8192):
+    def components(self, position_raw=8192, *, motion=None):
         now = self.clock()
-        pos, velocity, acceleration = self._motion(position_raw, now)
+        motion = self.motion_estimator.sample(position_raw, now) if motion is None else motion
         result = {key: 0.0 for key in OUTPUT_COMPONENTS}
         # Silêncio do host é legítimo: a vida é definida por Start/Stop,
         # duração e estado PID. O timeout da saída pertence ao backend.
@@ -304,32 +279,10 @@ class PIDSteeringBridge(PIDPassive):
                 family = 'periodic'
                 force = (item['periodic_offset'] + item['periodic_magnitude'] * waveform) * gain
             elif kind in (9, 10, 11, 12) and item['condition_axis'] == 0:
-                if kind == 9:
-                    delta = pos - item['center']
-                    if abs(delta) <= item['deadband']: continue
-                    coeff = abs(item['coeff_pos'] if delta > 0 else item['coeff_neg'])
-                    sat = item['sat_pos'] if delta > 0 else item['sat_neg']
-                    mag = min(32767, sat, round((abs(delta) - item['deadband']) * coeff / 32767))
-                    family = 'spring'
-                    force = self.spring_direction * (1 if delta > 0 else -1) * mag * gain
-                elif kind == 10:
-                    if abs(velocity) < 300: continue
-                    coeff = abs(item['coeff_pos'] if velocity > 0 else item['coeff_neg'])
-                    sat = item['sat_pos'] if velocity > 0 else item['sat_neg']
-                    mag = min(32767, sat, round(abs(velocity)*coeff/65534))
-                    family, force = 'damper', -(1 if velocity > 0 else -1) * mag * gain
-                elif kind == 11:
-                    if abs(acceleration) < 6000: continue
-                    coeff = abs(item['coeff_pos'] if acceleration > 0 else item['coeff_neg'])
-                    sat = item['sat_pos'] if acceleration > 0 else item['sat_neg']
-                    mag = min(32767, sat, round(abs(acceleration)*coeff/350000))
-                    family, force = 'inertia', -(1 if acceleration > 0 else -1)*mag*gain
-                else:
-                    if abs(velocity) < 200: continue
-                    coeff = abs(item['coeff_pos'] if velocity > 0 else item['coeff_neg'])
-                    sat = item['sat_pos'] if velocity > 0 else item['sat_neg']
-                    mag = min(32767, sat, round(coeff * min(1.,abs(velocity)/8000.)))
-                    family, force = 'friction', -(1 if velocity > 0 else -1)*mag*gain
+                family = PID_EFFECT_NAMES[kind]
+                force = condition_force(item, motion,
+                                        velocity_reference=self.velocity_reference,
+                                        acceleration_reference=self.acceleration_reference) * item['gain']
             if family is not None:
                 if kind not in (9, 10, 11, 12):
                     force *= effect_projection(item)

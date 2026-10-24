@@ -235,7 +235,6 @@ class OfflineAudit(unittest.TestCase):
         self.effect(block, direction=27000)
         self.assertLess(right * self.bridge.raw_level(), 0)
 
-    @unittest.expectedFailure
     def test_gap_pause_continue_preserves_running_effects(self):
         self.constant()
         self.bridge.seen(bytes((0x50, 5)))
@@ -249,7 +248,6 @@ class OfflineAudit(unittest.TestCase):
         self.bridge.set_report(bytes((0x55, block)) + struct.pack('<h', 8000), 0x55)
         self.assertEqual(self.bridge.raw_level(), 8000)
 
-    @unittest.expectedFailure
     def test_gap_loop_count_repeats_finite_effect(self):
         block = self.constant()
         self.effect(block, duration=50)
@@ -257,7 +255,6 @@ class OfflineAudit(unittest.TestCase):
         self.now += .075
         self.assertEqual(self.bridge.raw_level(), 16384)
 
-    @unittest.expectedFailure
     def test_gap_start_restarts_effect_timeline(self):
         block = self.constant()
         self.now += .05

@@ -84,3 +84,159 @@ class PoolTests(LifecycleVectors):
         for capacity in (0, 41, -1, 1.5, True):
             with self.assertRaises(ValueError):
                 M.PIDSteeringBridge(capacity=capacity)
+
+
+class TimelineTests(LifecycleVectors):
+    def control(self, code):
+        self.bridge.seen(bytes((0x50, code)))
+
+    def test_finite_repetitions_end_at_exact_boundary(self):
+        block = self.constant(duration=50, loops=3)
+        for now in (0, .049, .05, .075, .149):
+            self.now = now
+            self.assertEqual(self.bridge.raw_level(), 16000)
+        self.assertEqual(self.bridge.effects[block]['loop_index'], 2)
+        self.now = .15
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_255_loops_is_infinite_and_zero_is_no_execution(self):
+        block = self.constant(duration=10, loops=255)
+        self.now = 10000
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.bridge.seen(bytes((0x5a, block, 1, 0)))
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.assertFalse(self.bridge.effects[block]['running'])
+
+    def test_254_repetitions_are_finite(self):
+        self.constant(duration=10, loops=254)
+        self.now = 2.539
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.now = 2.54
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_delay_occurs_once_not_before_each_repetition(self):
+        self.constant(duration=50, delay=20, loops=3)
+        self.now = .01
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.now = .075
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.now = .17
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_envelope_restarts_on_each_loop(self):
+        block = self.constant(duration=100, loops=3)
+        self.bridge.seen(bytes((0x52, block)) + struct.pack('<HHHH', 0, 0, 100, 0))
+        for now, expected in ((.05, 8000), (.1, 0), (.15, 8000), (.3, 0)):
+            self.now = now
+            self.assertEqual(self.bridge.raw_level(), expected)
+
+    def test_zero_duration_with_infinite_count_does_not_spin(self):
+        block = self.constant(duration=0, loops=255)
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.assertFalse(self.bridge.effects[block]['running'])
+
+    def test_pause_freezes_delay_and_continue_preserves_remaining_time(self):
+        self.constant(duration=100, delay=100)
+        self.now = .05
+        self.control(5)
+        self.now = 10
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.control(6)
+        self.now = 10.049
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.now = 10.05
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.now = 10.15
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_pause_freezes_envelope_phase_and_repetitions(self):
+        block = self.constant(duration=100, loops=2)
+        self.bridge.seen(bytes((0x52, block)) + struct.pack('<HHHH', 0, 0, 100, 0))
+        self.now = .15
+        self.assertEqual(self.bridge.raw_level(), 8000)
+        self.control(5)
+        self.now = 4
+        self.control(6)
+        self.assertEqual(self.bridge.raw_level(), 8000)
+        self.now = 4.05
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_pause_continue_are_idempotent(self):
+        self.constant(duration=100)
+        self.now = .02
+        self.control(5)
+        self.now = .03
+        self.control(5)
+        self.now = 1
+        self.control(6)
+        self.control(6)
+        self.now = 1.08
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_start_while_paused_begins_from_resume(self):
+        block = self.constant(duration=100)
+        self.now = .02
+        self.control(5)
+        self.now = 1
+        self.bridge.seen(bytes((0x5a, block, 1, 1)))
+        self.now = 2
+        self.control(6)
+        self.now = 2.099
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.now = 2.1
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_disable_mutes_actuator_but_time_keeps_running(self):
+        block = self.constant(duration=100)
+        self.now = .02
+        self.control(2)
+        self.assertTrue(self.bridge.effects[block]['running'])
+        self.assertFalse(self.bridge.paused)
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.now = .05
+        self.control(1)
+        self.assertEqual(self.bridge.raw_level(), 16000)
+        self.now = .06
+        self.control(2)
+        self.now = 1
+        self.control(1)
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_start_solo_stops_others_and_restarts_target(self):
+        first = self.constant(10000)
+        second = self.constant(8000)
+        self.assertEqual(self.bridge.raw_level(), 18000)
+        self.now = .05
+        self.bridge.seen(bytes((0x5a, second, 2, 1)))
+        self.assertFalse(self.bridge.effects[first]['running'])
+        self.assertEqual(self.bridge.effects[second]['started_at'], .05)
+        self.assertEqual(self.bridge.raw_level(), 8000)
+
+    def test_stop_all_preserves_allocations_and_free_releases_only_target(self):
+        first = self.constant(10000)
+        second = self.constant(8000)
+        self.control(3)
+        self.assertEqual(len(self.bridge.effects), 2)
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.bridge.seen(bytes((0x5a, second, 1, 1)))
+        self.bridge.seen(bytes((0x5b, first)))
+        self.assertEqual(self.bridge.raw_level(), 8000)
+
+    def test_update_after_expiry_does_not_resurrect_effect(self):
+        block = self.constant(duration=50)
+        self.now = .1
+        self.configure(block, duration=1000)
+        self.assertEqual(self.bridge.raw_level(), 0)
+        self.bridge.seen(bytes((0x5a, block, 1, 1)))
+        self.assertEqual(self.bridge.raw_level(), 16000)
+
+    def test_reset_clears_pause_disable_gain_and_old_effects(self):
+        self.constant()
+        self.control(5)
+        self.control(2)
+        self.bridge.seen(bytes((0x59, 0)))
+        self.control(4)
+        self.assertEqual(self.bridge.effects, {})
+        self.assertFalse(self.bridge.paused)
+        self.assertTrue(self.bridge.actuators_enabled)
+        self.assertEqual(self.bridge.gain, 1)

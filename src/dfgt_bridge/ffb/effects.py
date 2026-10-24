@@ -10,6 +10,7 @@ from .renderer import (ANGLE_MAX, MotionEstimator, condition_force,
                        effect_projection, envelope_magnitude,
                        enveloped_constant, periodic_wave, ramp_level)
 from .pool import EffectPool
+from .lifecycle import effect_time, start_effect
 
 
 class PIDPassive:
@@ -73,6 +74,9 @@ class PIDSteeringBridge(PIDPassive):
         self.gain = 1.0
         self.armed = False
         self.paused = False
+        self.pause_started = None
+        self.paused_duration = 0.0
+        self.actuators_enabled = True
         self.last_command_time = -1e9
         self.pid_counts = Counter()
         self.created_by_kind = Counter()
@@ -91,6 +95,9 @@ class PIDSteeringBridge(PIDPassive):
         self.last_block = 0
         self.gain = 1.0
         self.paused = False
+        self.pause_started = None
+        self.paused_duration = 0.0
+        self.actuators_enabled = True
         self.last_command_time = -1e9
         self.armed = True
         self.motion_estimator.reset()
@@ -105,7 +112,16 @@ class PIDSteeringBridge(PIDPassive):
                     start_delay_ms=0, direction=9000,
                     axes_enabled=1, direction_enabled=False,
                     attack_level=0, attack_time=0, fade_level=0,
-                    fade_time=0, started_at=None)
+                    fade_time=0, started_at=None, loop_count=1, loop_index=0)
+
+    def logical_time(self, now):
+        return (self.pause_started if self.paused else now) - self.paused_duration
+
+    def advance(self, now):
+        logical = self.logical_time(now)
+        for item in self.effects.values():
+            effect_time(item, logical)
+        return logical
 
     def set_report(self, packet, number):
         super().set_report(packet, number)
@@ -138,18 +154,32 @@ class PIDSteeringBridge(PIDPassive):
             raise ValueError('Relógio PID deve ser finito')
         if op == 0x50 and len(packet) >= 2:
             ctrl = packet[1]
+            self.advance(now)
             if ctrl == 4:  # device reset
                 self.pool.reset()
                 self.last_block = 0
+                self.gain = 1.0
                 self.last_command_time = -1e9
                 self.paused = False
-            elif ctrl in (2, 3, 5):
+                self.pause_started = None
+                self.paused_duration = 0.0
+                self.actuators_enabled = True
+                self.motion_estimator.reset()
+            elif ctrl == 3:
                 for item in self.effects.values():
                     item['running'] = False
-                self.last_command_time = -1e9
-                if ctrl in (2, 5): self.paused = True
-            elif ctrl in (1, 6):
+            elif ctrl in (1, 2):
+                self.actuators_enabled = ctrl == 1
+            elif ctrl == 5 and not self.paused:
+                self.pause_started = now
+                self.paused = True
+            elif ctrl == 6 and self.paused:
+                if now < self.pause_started:
+                    raise ValueError('Relógio recuou durante a pausa')
+                self.paused_duration += now-self.pause_started
+                self.pause_started = None
                 self.paused = False
+                self.motion_estimator.reset()
             return
         if op == 0x59 and len(packet) >= 2:
             self.gain = packet[1] / 255.0
@@ -166,6 +196,8 @@ class PIDSteeringBridge(PIDPassive):
             elif op not in (0x0D, 0xF5, 0xF8):
                 self.ignored[f'opcode_0x{op:02x}'] += 1
             return
+        logical = self.logical_time(now)
+        effect_time(item, logical)  # Update não revive efeito já expirado.
         if op == 0x51 and len(packet) >= 18:
             direction = struct.unpack_from('<H', packet, 14)[0]
             if direction > ANGLE_MAX:
@@ -214,9 +246,7 @@ class PIDSteeringBridge(PIDPassive):
                 if effect_op == 2:
                     for other in self.effects.values():
                         other['running'] = False
-                if not item['running']:
-                    item['started_at'] = now
-                item['running'] = True
+                start_effect(item, logical, packet[3])
                 if item['kind'] != 3:
                     self.last_command_time = now
             elif effect_op == 3:
@@ -237,7 +267,8 @@ class PIDSteeringBridge(PIDPassive):
         contributions = {key: [] for key in OUTPUT_COMPONENTS}
         # Silêncio do host é legítimo: a vida é definida por Start/Stop,
         # duração e estado PID. O timeout da saída pertence ao backend.
-        if not self.armed or self.paused:
+        logical = self.advance(now)
+        if not self.armed or self.paused or not self.actuators_enabled:
             return result
         for item in self.effects.values():
             if not item['running']:
@@ -245,15 +276,8 @@ class PIDSteeringBridge(PIDPassive):
             kind = item['kind']
             if kind == 3 or kind not in PID_EFFECT_NAMES:
                 continue
-            elapsed = max(0.0, now - (item['started_at'] if item['started_at'] is not None else now))
-            delay = item['start_delay_ms']/1000.0
-            if elapsed < delay:
-                continue
-            elapsed -= delay
-            duration_ms = item['duration_ms']
-            duration = (duration_ms or 0)/1000.0
-            if duration_ms is not None and elapsed >= duration:
-                item['running'] = False
+            elapsed = effect_time(item, logical)
+            if elapsed is None:
                 continue
             gain = item['gain']
             force = 0.0

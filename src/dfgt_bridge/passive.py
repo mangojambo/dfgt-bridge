@@ -146,6 +146,12 @@ class PassiveSession:
             # Após o bootstrap, STOP volta a encerrar a sessão normalmente.
             self.core.transport.stop_terminates = data['ready']
             self.core.tick(motion=self.motion)
+        elif kind == 'resend_input':
+            # O primeiro Input pode ter sido ignorado enquanto não havia driver.
+            # Reenviar os bytes não é uma nova amostra física/derivada.
+            writes.append(input_event(self.last_input))
+            info['input_report_hex'] = self.last_input.hex()
+            self.core.tick(motion=self.motion)
         elif kind == 'mark':
             if data.get('phase') not in ('initialization_unattributed', 'game_operator_marked', 'menu_operator_marked'):
                 raise ValueError('Marcador de fase inválido')

@@ -1,6 +1,7 @@
 """STOP de troca de driver só é tolerado durante bootstrap explícito."""
 import struct
 import unittest
+from unittest.mock import patch
 
 from test_ffb_audit import ROOT
 from test_ffb_transport import output, set_report
@@ -42,3 +43,16 @@ class BindingLifecycleTests(unittest.TestCase):
         self.assertTrue(self.session.core.closed)
         self.assertTrue(self.session.core.output.closed)
         self.assertEqual(self.session.core.output.dev.level, 0)
+
+    def test_input_resend_does_not_manufacture_a_new_motion_sample(self):
+        state = [8192, 255, 255, 0, 0, []]
+        self.apply('input', dict(state=state))
+        state[0] = 12000
+        actual = self.apply('input', dict(state=state))
+        sampled = self.session.sample_ns
+        motion = self.session.motion
+        with patch.object(self.session.estimator, 'sample', side_effect=AssertionError('not a real sample')):
+            repeated = self.apply('resend_input', {})
+        self.assertEqual(repeated['info']['input_report_hex'], actual['info']['input_report_hex'])
+        self.assertEqual(self.session.sample_ns, sampled)
+        self.assertEqual(self.session.motion, motion)

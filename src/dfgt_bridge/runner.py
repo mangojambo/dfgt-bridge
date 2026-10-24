@@ -161,6 +161,13 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                     break
                 if bound and not runtime['ready']:
                     dispatch('binding', {'ready': True})
+                    dispatch('resend_input', {})
+                    if stop['reason'] is not None:
+                        break
+                    if not binding.poll():
+                        continue
+                    if stop['reason'] is not None:
+                        break
                     runtime['ready'] = True
                     runtime['binding'] = [binding.last]
                     print('[PRONTO] ' + json.dumps(binding.last, sort_keys=True), flush=True)

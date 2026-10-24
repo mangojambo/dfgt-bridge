@@ -111,7 +111,7 @@ class StartupRunnerTests(unittest.TestCase):
 
     def test_binding_loss_after_ready_closes_supervisor_and_virtual_device(self):
         self.args.enable_ffb = True
-        self.binder.poll = Mock(side_effect=[True, BindingError('G29 desconectado')])
+        self.binder.poll = Mock(side_effect=[True, True, BindingError('G29 desconectado')])
         physical = FakePhysical()
         with self.assertRaisesRegex(BindingError, 'desconectado'):
             self.execute(physical_factory=Mock(return_value=physical))
@@ -146,4 +146,40 @@ class StartupRunnerTests(unittest.TestCase):
         self.assertEqual(transitions, [dict(ready=False), dict(ready=True)])
         self.assertTrue(records[-1]['runtime']['ready'])
         self.assertTrue(replay(self.path)['complete'])
+
+    def test_stationary_pedals_are_resent_after_driver_becomes_ready(self):
+        initialized = False
+        seen = []
+        original = self.virtual.write
+        def poll():
+            nonlocal initialized
+            initialized = True
+            return True
+        def write(data):
+            original(data)
+            if data[:4] == struct.pack('=I', 12) and data[6] == 1:
+                seen.append((initialized, data))
+        self.binder.poll = poll
+        self.virtual.write = write
+        self.execute()
+        self.assertEqual([bound for bound, _ in seen], [False, True])
+        self.assertEqual(seen[0][1], seen[1][1])
+        self.assertEqual(seen[1][1][6:17].hex(), '010280ffffff0800000000')
+        self.assertTrue(replay(self.path)['complete'])
+
+    def test_cancel_while_resending_controls_cannot_start_physical_output(self):
+        self.args.enable_ffb = True
+        stop = {'reason': None}
+        polls = []
+        self.binder.poll = lambda: polls.append(True) or True
+        original = self.virtual.write
+        def write(data):
+            original(data)
+            if polls and data[:4] == struct.pack('=I', 12) and data[6] == 1:
+                stop['reason'] = 'SIGTERM'
+        self.virtual.write = write
+        factory = Mock(side_effect=AssertionError('physical output during cancel'))
+        self.execute(stop=stop, physical_factory=factory)
+        factory.assert_not_called()
+        self.assertNotIn('[PRONTO]', self.console.getvalue())
 

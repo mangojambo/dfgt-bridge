@@ -2,7 +2,9 @@
 import struct
 import unittest
 
-from test_ffb_audit import M
+from test_ffb_audit import BASE, M, load_reviewed_definitions
+from dfgt_bridge.ffb.pool import DESCRIPTOR_CAPACITY
+from dfgt_bridge.ffb.lifecycle import INFINITE_LOOPS
 
 
 class LifecycleVectors(unittest.TestCase):
@@ -28,6 +30,33 @@ class LifecycleVectors(unittest.TestCase):
 
 
 class PoolTests(LifecycleVectors):
+    def test_pool_and_loop_contract_matches_preserved_descriptor(self):
+        descriptor = load_reviewed_definitions(BASE).descriptor()
+        fields = []
+        globals_ = {}
+        usages = []
+        index = 0
+        while index < len(descriptor):
+            lead = descriptor[index]
+            index += 1
+            self.assertNotEqual(lead, 0xfe, 'Item longo requer revisão do parser de teste')
+            size = (0, 1, 2, 4)[lead & 3]
+            value = int.from_bytes(descriptor[index:index+size], 'little')
+            index += size
+            kind, tag = (lead >> 2) & 3, lead >> 4
+            if kind == 1:
+                globals_[tag] = value
+            elif kind == 2 and tag == 0:
+                usages.append(value)
+            elif kind == 0:
+                if tag == 9:
+                    fields.append((globals_.copy(), tuple(usages)))
+                usages = []
+        loops = next(field for field, usages in fields if field.get(8) == 0x5a and 0x7c in usages)
+        blocks = next(field for field, usages in fields if field.get(8) == 0x5b and 0x22 in usages)
+        self.assertEqual((loops[1], loops[2], loops[7]), (0, INFINITE_LOOPS, 8))
+        self.assertEqual((blocks[1], blocks[2]), (1, DESCRIPTOR_CAPACITY))
+
     def test_full_pool_preserves_all_effects_and_identifiers(self):
         ids = [self.create() for _ in range(40)]
         snapshot = dict(self.bridge.effects)

@@ -47,8 +47,41 @@ Na extração, os 18 testes ainda tiveram exatamente as 13 falhas esperadas. Em 
 
 O pedido de replay da saída permanece em 160 ms, separado do tempo PID. O mock não simula a expiração do kernel: os testes conferem o pedido e as decisões do controlador, sem alegar uma garantia física validada. Reduções de teto e stop podem antecipar atualizações normais; a taxa de 45 Hz se aplica ao fluxo normal, não bloqueia essas ações prioritárias.
 
-Resultado atual: **32 testes, 21 passando e 11 falhas esperadas; zero testes ignorados ou falhas inesperadas**. Os 18 testes originais continuam presentes: dois casos corrigidos perderam `expectedFailure`; foram adicionados seis cenários de duração e oito de segurança. Os CSVs originais continuam com cinco arquivos e 132 registros, sem efeitos completos de corrida.
+Resultado desse primeiro incremento: **32 testes, 21 passando e 11 falhas esperadas; zero testes ignorados ou falhas inesperadas**. Os 18 testes originais continuam presentes: dois casos corrigidos perderam `expectedFailure`; foram adicionados seis cenários de duração e oito de segurança. Os CSVs originais continuam com cinco arquivos e 132 registros, sem efeitos completos de corrida.
 
-As 11 divergências ainda abertas são: direção, sinal de coeficientes, escala de saturação, envelope, Output via Set Report, Loop Count, reinício por Start, Pause/Continue, pool cheio, clipping antes de cancelamento e uploads redundantes. A primeira tarefa recomendada é direção/sinal/escalas, com vetores de referência e teste de regressão contra entrada v0.8.
+As 11 divergências abertas naquele ponto eram: direção, sinal de coeficientes, escala de saturação, envelope, Output via Set Report, Loop Count, reinício por Start, Pause/Continue, pool cheio, clipping antes de cancelamento e uploads redundantes. A etapa matemática abaixo resolve cinco delas.
 
 Os launchers e referências **ainda usam o código histórico**, sem essas correções. A integração do núcleo novo ao UHID/EVDEV é uma etapa posterior; nenhuma configuração do Steam foi alterada. O link de compatibilidade `dfgt_bridge.py` na raiz colide com o nome do pacote em `src/`; a suite insere `src/` explicitamente no caminho de imports. Não use `python -m dfgt_bridge` na raiz como entrypoint do pacote. Um entrypoint separado será criado quando a integração estiver pronta.
+
+## Etapa matemática concluída
+
+Estado atual: **95 testes: 89 passando, 6 falhas esperadas, nenhum teste ignorado e nenhuma falha inesperada**. Os 18 testes originais continuam presentes. Nesta etapa foram convertidos em testes normais direção, sinais dos coeficientes, saturação unsigned, envelope e cancelamento antes do clipping. O vetor de full scale negativo usa agora o Logical Minimum real −32768; o caso −32767 continua coberto independentemente, conforme justificado em `FFB_MATH.md`.
+
+`renderer.py` concentra funções puras de direção, condições e envelopes e um estimador de movimento separado. `mixer.py` preserva a soma antes do teto e expõe clipping/reserva opcional. `effects.py` mantém decodificação e ciclo de vida, delegando a matemática; não foi feita uma reescrita do transporte ou da entrada. O backend continua sendo mock.
+
+Foram adicionados 63 testes sintéticos, com relógio simulado: cardinais e diagonais, flags de eixos, CP Offset, extremos signed, coeficientes e saturações assimétricos, deadband, leis dinâmicas, filtros/derivadas, envelope absoluto, ganho, atraso, sobreposição, forma de onda, seis efeitos simultâneos, clipping e reserva de transientes. Os testes numéricos incluem cancelamento de números grandes, resíduos pequenos, NaN/Inf/overflow e relógio inválido. Os testes com CSVs reais permanecem separados desses vetores e preservam os 132 registros originais.
+
+Commits de implementação desta etapa:
+
+| Commit | Correção |
+|---|---|
+| `e83b594` | Projeção de efeitos vetoriais e flags de eixos |
+| `ccd5f55` | Condições signed, saturação/deadband e métricas explícitas |
+| `7ac8cb3` | Envelopes absolutos e formas de onda de referência |
+| `7665155` | Mistura antes de clipping e reserva opcional para transientes |
+| `9eacc91` | Resposta zero sob extremos numéricos e relógio PID inválido |
+| `1c8e201` | Fronteiras periódicas estáveis antes da quantização |
+| `332779e` | Parada/desarme do mock quando o relógio de saída é inválido |
+
+As seis falhas esperadas restantes são:
+
+1. Output recebido por Set Report não usa o decoder completo.
+2. Loop Count não repete efeitos finitos.
+3. Start de efeito ativo não reinicia a timeline.
+4. Pause/Continue não preserva o estado pausado.
+5. Pool cheio sobrescreve blocos sem retornar Full.
+6. Nível estável ainda provoca uploads redundantes.
+
+Próxima etapa recomendada: corrigir transporte/ciclo de vida offline, incluindo pool, Start/Stop/Solo, loops e pausa com tempo congelado. Depois eliminar uploads redundantes sem perder a renovação do replay curto e ampliar o diagnóstico/replay. A integração física deve continuar aguardando decisão e aprovação próprias.
+
+Ainda exigem validação física: polaridade entre ABS_X/nível EVDEV/sentido mecânico, referência de velocidade/aceleração e filtros, equivalência do atrito Coulomb ao firmware, faixa dinâmica/quantização efetiva, latência/taxa e expiração de replay. A reserva opcional muda a reprodução das condições e precisa ser avaliada conscientemente. O modo linear não promete transientes intactos quando a soma ultrapassa a capacidade física. O descritor unsigned de Ramp, Custom não implementado e ausência de captura completa de corrida permanecem limitações documentadas.

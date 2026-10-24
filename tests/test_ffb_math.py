@@ -515,6 +515,29 @@ class MixingTests(MathVectors):
         self.assertEqual(mix_components({'constant': 32000}, gain=0).limited, 0)
         self.assertEqual(mix_components({'constant': -32000}, limit=0).limited, 0)
 
+    def test_nonfinite_output_clock_stops_and_disarms_without_upload(self):
+        motor = ConstantOutput(clock=lambda: self.now)
+        motor.tick(16000)
+        before = motor.writes
+        self.now = math.nan
+        with self.assertRaises(ValueError):
+            motor.tick(32767)
+        self.assertFalse(motor.playing)
+        self.assertFalse(motor.enabled)
+        self.assertEqual(motor.writes, before)
+
+    def test_immediate_limit_update_also_validates_output_clock(self):
+        motor = ConstantOutput(strength_percent=60, clock=lambda: self.now)
+        motor.tick(32767)
+        self.now = .03
+        motor.tick(32767)
+        self.now = math.inf
+        with self.assertRaises(ValueError):
+            motor.set_strength(5)
+        self.assertFalse(motor.playing)
+        self.assertFalse(motor.enabled)
+        self.assertEqual(motor.writes, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

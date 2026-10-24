@@ -93,6 +93,9 @@ class ConstantOutput:
 
     def tick(self, normalized_level):
         now = self.clock()
+        if not math.isfinite(now):
+            self.set_enabled(False)
+            raise ValueError('Relógio de saída deve ser finito')
         if not self.enabled:
             self.stop()
             return
@@ -144,6 +147,10 @@ class ConstantOutput:
         if level == 0:
             self.stop()
             return
+        now = self.clock()
+        if not math.isfinite(now):
+            self.set_enabled(False)
+            raise ValueError('Relógio de saída deve ser finito')
         new_id = self.dev.upload_effect(self._effect(level))
         if self.id >= 0 and new_id != self.id:
             raise RuntimeError('Driver não reutilizou slot FFB; encerrando por segurança')
@@ -154,7 +161,7 @@ class ConstantOutput:
         self.last_sent = level
         self.peak = max(self.peak, abs(level))
         self.writes += 1
-        self.last_tick = self.clock()
+        self.last_tick = now
 
     def stop(self):
         # No repeated zero commands: avoid burdening the Logitech driver.

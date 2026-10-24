@@ -139,6 +139,13 @@ class PassiveSession:
             self.counts['uhid_' + event_kind] += 1
         elif kind == 'tick':
             self.core.tick(motion=self.motion)
+        elif kind == 'binding':
+            if type(data.get('ready')) is not bool:
+                raise ValueError('Estado de associação inválido')
+            # STOP de um driver que falhou/foi desassociado não destrói UHID.
+            # Após o bootstrap, STOP volta a encerrar a sessão normalmente.
+            self.core.transport.stop_terminates = data['ready']
+            self.core.tick(motion=self.motion)
         elif kind == 'mark':
             if data.get('phase') not in ('initialization_unattributed', 'game_operator_marked', 'menu_operator_marked'):
                 raise ValueError('Marcador de fase inválido')

@@ -30,6 +30,7 @@ class PIDTransport:
         self.last_error = None
         self.closed = False
         self.close_terminates = close_terminates
+        self.stop_terminates = True
         self.input_report = None
 
     def close(self):
@@ -119,7 +120,8 @@ class PIDTransport:
         try:
             if len(event) > UHID_EVENT_SIZE:
                 raise ReportError('oversized_uhid_event', errno.EMSGSIZE)
-            if kind == UHID_CLOSE and not self.close_terminates:
+            if ((kind == UHID_CLOSE and not self.close_terminates) or
+                    (kind == UHID_STOP and not self.stop_terminates)):
                 # CLOSE é o último leitor, não a destruição do UHID. Probes
                 # podem abrir/fechar antes do jogo; não ressuscitar seus efeitos.
                 self.engine.arm()

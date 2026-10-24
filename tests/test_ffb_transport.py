@@ -41,6 +41,11 @@ class TransportTests(unittest.TestCase):
         self.create(41)
         self.assertEqual(self.transport.handle(get_report(0x56, 42)),
                          (struct.pack('=IIHH', 10, 42, 0, 5) + bytes.fromhex('560101c009'),))
+        self.assertEqual(self.transport.handle(get_report(0x56, 43))[0][12:], bytes.fromhex('560101c009'))
+        self.assertEqual(len(self.engine.effects), 1)
+        # Byte Count máximo é ignorado em Constant, não reserva 511 bytes.
+        self.transport.handle(set_report(bytes.fromhex('5401ff01'), 44, 0))
+        self.assertEqual(self.engine.pool.available, 2560-2*64)
 
     def test_output_and_set_report_share_one_decoder(self):
         block = self.create()

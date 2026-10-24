@@ -6,7 +6,7 @@ Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) c
 
 ```text
 AGENTS.md / README.md / pyproject.toml / .gitignore
-src/dfgt_bridge/       estado PID, renderer, mixer, safety e backend simulado
+src/dfgt_bridge/       transporte PID, pool/timeline, matemática e sessão mock
 reference/v0.8/        baseline funcional preservada
 reference/v0.13/       experimento auditado preservado, sem correções retroativas
 archive/experiments/   versões anteriores por família e versão
@@ -26,7 +26,7 @@ Só é necessário Python 3.10+ para os testes offline; não instale `evdev` par
 python3 -B -m unittest discover -s tests -v
 ```
 
-A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **95 testes: 89 passando e 6 falhas esperadas**, sem testes ignorados. Além de duração e limites imediatos, foram corrigidos direção, condições signed, escalas, envelopes e mistura; veja [o estado de desenvolvimento](docs/DEVELOPMENT.md) e [as fórmulas e limitações](docs/FFB_MATH.md). Uma falha esperada documenta um defeito reproduzível; não significa que o comportamento está correto.
+A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **168 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
 
 Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. Ele ainda é uma biblioteca em desenvolvimento, sem entrypoint de hardware. A suite importa `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
 
@@ -54,6 +54,8 @@ Fora desta restrição, um clone convencional usa `.git/` normalmente; o wrapper
 - [Manifesto original](docs/FFB_AUDIT_MANIFEST.json)
 - [Plano, caminhos e estado atual](docs/DEVELOPMENT.md)
 - [Matemática PID, sinais, mistura e aproximações](docs/FFB_MATH.md)
+- [Transporte, pool, timeline e scheduler offline](docs/PID_TRANSPORT.md)
+- [Plano de integração com a v0.8, ainda não executado](docs/INTEGRATION_PLAN.md)
 - [Regras para agentes e colaboradores](AGENTS.md)
 
 Testes físicos, alteração de drivers e avaliação de comandos proprietários Logitech dependem de aprovação separada.

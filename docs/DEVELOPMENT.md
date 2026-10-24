@@ -55,7 +55,7 @@ Os launchers e referências **ainda usam o código histórico**, sem essas corre
 
 ## Etapa matemática concluída
 
-Estado atual: **95 testes: 89 passando, 6 falhas esperadas, nenhum teste ignorado e nenhuma falha inesperada**. Os 18 testes originais continuam presentes. Nesta etapa foram convertidos em testes normais direção, sinais dos coeficientes, saturação unsigned, envelope e cancelamento antes do clipping. O vetor de full scale negativo usa agora o Logical Minimum real −32768; o caso −32767 continua coberto independentemente, conforme justificado em `FFB_MATH.md`.
+Resultado da etapa matemática: **95 testes: 89 passando, 6 falhas esperadas, nenhum teste ignorado e nenhuma falha inesperada**. Os 18 testes originais continuam presentes. Nesta etapa foram convertidos em testes normais direção, sinais dos coeficientes, saturação unsigned, envelope e cancelamento antes do clipping. O vetor de full scale negativo usa agora o Logical Minimum real −32768; o caso −32767 continua coberto independentemente, conforme justificado em `FFB_MATH.md`.
 
 `renderer.py` concentra funções puras de direção, condições e envelopes e um estimador de movimento separado. `mixer.py` preserva a soma antes do teto e expõe clipping/reserva opcional. `effects.py` mantém decodificação e ciclo de vida, delegando a matemática; não foi feita uma reescrita do transporte ou da entrada. O backend continua sendo mock.
 
@@ -73,7 +73,7 @@ Commits de implementação desta etapa:
 | `1c8e201` | Fronteiras periódicas estáveis antes da quantização |
 | `332779e` | Parada/desarme do mock quando o relógio de saída é inválido |
 
-As seis falhas esperadas restantes são:
+As seis falhas esperadas naquele ponto eram:
 
 1. Output recebido por Set Report não usa o decoder completo.
 2. Loop Count não repete efeitos finitos.
@@ -85,3 +85,22 @@ As seis falhas esperadas restantes são:
 Próxima etapa recomendada: corrigir transporte/ciclo de vida offline, incluindo pool, Start/Stop/Solo, loops e pausa com tempo congelado. Depois eliminar uploads redundantes sem perder a renovação do replay curto e ampliar o diagnóstico/replay. A integração física deve continuar aguardando decisão e aprovação próprias.
 
 Ainda exigem validação física: polaridade entre ABS_X/nível EVDEV/sentido mecânico, referência de velocidade/aceleração e filtros, equivalência do atrito Coulomb ao firmware, faixa dinâmica/quantização efetiva, latência/taxa e expiração de replay. A reserva opcional muda a reprodução das condições e precisa ser avaliada conscientemente. O modo linear não promete transientes intactos quando a soma ultrapassa a capacidade física. O descritor unsigned de Ramp, Custom não implementado e ausência de captura completa de corrida permanecem limitações documentadas.
+
+## Transporte e ciclo de vida concluídos
+
+Estado atual: **168 testes passando; zero falhas esperadas, zero testes ignorados e zero falhas inesperadas**. Todos os 18 casos originais continuam presentes. As seis marcas restantes foram removidas após as respectivas correções, sem eliminar asserts. A comparação dos campos históricos de RAM nos CSVs passou a ser feita contra o código preservado; a nova resposta tem vetores exatos e orçamento coerente, em vez de repetir os valores fictícios do protótipo.
+
+Foram adicionados `pid_decoder.py` (validação do contrato PID), `transport.py` (framing/respostas UHID), `pool.py`, `lifecycle.py` e `session.py`. A sessão é exclusivamente mock, sem fd, threads ou I/O de dispositivo. Os novos testes percorrem sequências completas e os 132 registros do corpus real, mantendo a distinção entre capturas e vetores sintéticos.
+
+| Commit | Entrega |
+|---|---|
+| `ddeb455` | Pool determinístico e respostas de alocação/memória |
+| `d5a58f6` | Repetições, Start/Stop/Solo, pausa e controle dos atuadores |
+| `037a758` | Transporte UHID tipado, validação e deduplicação limitada |
+| `eca759b` | Deduplicação de uploads, renovação separada e expiração mock |
+| `dc0adf3` | Sessão e sequências de integração exclusivamente offline |
+| `275a4af` | PID State de acordo com as usages repetidas do descritor |
+
+Pronto para o próximo trabalho de integração: contratos de bytes, pool, timeline, matemática, mistura e scheduler de saída simulada. Ainda não pronto como bridge físico: não há leitor/escritor UHID/EVDEV novo nem integração ao launcher, notificações assíncronas de PID State ou implementação de Custom. A validação de protocolo não transforma o UHID em uma réplica completa do USB proprietário do G29.
+
+O plano de conexão por adaptador, **sem execução nesta entrega**, está em [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md). Os detalhes de tipos, Loop Count zero/255, política de memória, idempotência e limites do mock estão em [PID_TRANSPORT.md](PID_TRANSPORT.md). Antes de qualquer backend físico, ainda serão necessárias captura completa de corrida e aprovação para os ensaios correspondentes.

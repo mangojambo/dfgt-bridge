@@ -48,7 +48,7 @@ Attack/Fade Level são amplitudes absolutas 0..32767. Para sustain M, ataque A e
 
 Constant conserva o sinal de seu nível; o módulo é usado apenas para calcular a amplitude do envelope. Em Periodic, somente a magnitude oscilante recebe o envelope; offset é a baseline e permanece presente, sujeito depois ao ganho/direção. Attack pode superar a amplitude de sustain. Ganho por efeito multiplica o sinal já envelopado; ganho do dispositivo vem depois, sem modificar tempos ou CP Offset. Condições não usam envelope.
 
-Start Delay precede a timeline de Attack. Duração zero não toca; infinito executa Attack e sustain sem fade automático; na duração finita o efeito cessa na fronteira D. Não foram corrigidos nesta etapa Loop Count, reinício por Start e Pause/Continue.
+Start Delay precede a timeline de Attack. Duração zero não toca; infinito executa Attack e sustain sem fade automático; na duração finita o efeito cessa na fronteira D. Loop Count, reinício por Start e Pause/Continue foram corrigidos na etapa posterior, descrita em [PID_TRANSPORT.md](PID_TRANSPORT.md); a timeline matemática reinicia a cada ciclo e congela durante pausa.
 
 Quando A+F>D, a política do núcleo reduz A e F proporcionalmente para caber em D, mantendo continuidade e evitando multiplicar dois envelopes. É uma política explícita para sobreposição, não uma afirmação de paridade com o firmware. Ramp usa o intervalo entre Attack e Fade para ir do início ao fim; sem intervalo disponível, ambos se encontram num único valor interpolado para evitar salto. Ramp infinito mantém o início após Attack. O descritor unsigned de Ramp ainda não representa diretamente uma rampa que cruza de força negativa para positiva.
 

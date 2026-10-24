@@ -266,7 +266,6 @@ class OfflineAudit(unittest.TestCase):
         self.create()
         self.assertEqual(self.bridge.get_report(0x56)[2], 2)  # Block Load Full
 
-    @unittest.expectedFailure
     def test_gap_no_clipping_before_cross_family_cancellation(self):
         self.constant(32767)
         self.constant(32767)

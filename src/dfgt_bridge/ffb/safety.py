@@ -7,6 +7,7 @@ import math
 import time
 
 from .effects import OUTPUT_COMPONENTS
+from .mixer import mix_components
 from ..backends.mock import MockBackend
 
 EV_FF = 0x15
@@ -28,8 +29,8 @@ class ConstantOutput:
     de expiração de um futuro adaptador físico precisa de validação própria.
     """
     def __init__(self, dev=None, strength_percent=12, rate_hz=45, clock=time.monotonic,
-                 boost=1.0, spring_share=0.35, damper_share=0.15,
-                 periodic_boost=1.0, max_strength_percent=60, test_limit_s=120):
+                 boost=1.0, periodic_boost=1.0, max_strength_percent=60,
+                 test_limit_s=120, condition_headroom=0.0):
         dev = MockBackend() if dev is None else dev
         if (dev.info.vendor, dev.info.product) != (0x046d, 0xc29a):
             raise RuntimeError('FFB rejeitado: fonte física não é DFGT 046d:c29a')
@@ -42,15 +43,14 @@ class ConstantOutput:
             raise ValueError('Duração de teste permitida: 30..240s')
         if not math.isfinite(boost) or not 1.0 <= boost <= 12.0:
             raise ValueError('Boost precisa estar entre 1.0 e 12.0')
-        if not (0.0 <= spring_share <= 0.5 and 0.0 <= damper_share <= 0.25):
-            raise ValueError('Frações mola/amortecimento inválidas')
+        if not math.isfinite(condition_headroom) or not 0 <= condition_headroom <= 1:
+            raise ValueError('Reserva condicional deve estar em 0..1')
         if not math.isfinite(periodic_boost) or not 0.0 <= periodic_boost <= 3.0:
             raise ValueError('Periodic boost 0..3')
         self.dev = dev
         self.clock = clock
         self.boost = boost
-        self.spring_share = spring_share
-        self.damper_share = damper_share
+        self.condition_headroom = condition_headroom
         self.periodic_boost = periodic_boost
         self.component_stats = Counter()
         self.strength_percent = strength_percent
@@ -66,6 +66,8 @@ class ConstantOutput:
         self.peak = 0
         self.peak_input = 0
         self.saturation_ticks = 0
+        self.last_mix = None
+        self.condition_limited_ticks = 0
         self.deadline_ms = 160  # Prazo do pedido; independente da duração PID.
         self.first_active = None
         self.expired = False
@@ -102,35 +104,19 @@ class ConstantOutput:
             self.expired = True
             self.stop()
             return
-        # Mix *after* allocating separate physical headroom to spring/damper.
-        # Previously spring saturation hid collisions in the global cap.
-        if isinstance(normalized_level, dict):
-            components = normalized_level
-            for key in OUTPUT_COMPONENTS:
-                self.component_stats[key] = max(self.component_stats[key],
-                                                abs(components.get(key, 0)))
-            game_magnitude = sum(components.values())
-            spring_limit = round(self.cap * self.spring_share)
-            damper_limit = round(self.cap * self.damper_share)
-            spring = max(-spring_limit, min(spring_limit, round(
-                components.get('spring', 0) * self.boost * self.cap / 32767)))
-            damper = max(-damper_limit, min(damper_limit, round(
-                components.get('damper', 0) * self.boost * self.cap / 32767)))
-            constant = round(components.get('constant', 0) * self.boost * self.cap / 32767)
-            periodic = round(components.get('periodic', 0) * self.boost *
-                             self.periodic_boost * self.cap / 32767)
-            friction_limit = round(self.cap * .15)
-            inertia_limit = round(self.cap * .10)
-            friction = max(-friction_limit,min(friction_limit,round(
-                components.get('friction',0)*self.boost*self.cap/32767)))
-            inertia = max(-inertia_limit,min(inertia_limit,round(
-                components.get('inertia',0)*self.boost*self.cap/32767)))
-            ramp = round(components.get('ramp',0)*self.boost*self.cap/32767)
-            requested = spring + damper + constant + periodic + friction + inertia + ramp
-        else:
-            game_magnitude = normalized_level
-            requested = round(normalized_level * self.boost * self.cap / 32767)
-        level = max(-self.cap, min(self.cap, requested))
+        components = normalized_level if isinstance(normalized_level, dict) else {'constant': normalized_level}
+        try:
+            self.last_mix = mix_components(
+                components, gain=self.boost * self.cap / 32767, limit=self.cap,
+                periodic_gain=self.periodic_boost,
+                condition_headroom=self.condition_headroom)
+        except ValueError:
+            self.set_enabled(False)
+            raise
+        for key in OUTPUT_COMPONENTS:
+            self.component_stats[key] = max(self.component_stats[key], abs(components.get(key, 0)))
+        game_magnitude = math.fsum(components.values())
+        level = round(self.last_mix.limited)
         if level == 0:
             self.stop()  # Zero/Reset/Stop não esperam o gate de taxa.
             return
@@ -138,8 +124,10 @@ class ConstantOutput:
             return
         self.last_tick = now
         self.peak_input = max(self.peak_input, abs(game_magnitude))
-        if abs(requested) > self.cap:
+        if self.last_mix.clipped:
             self.saturation_ticks += 1
+        if self.last_mix.condition_limited:
+            self.condition_limited_ticks += 1
         if self.first_active is None:
             self.first_active = now
         # Limit change in output per tick; avoids a sudden full reversal.

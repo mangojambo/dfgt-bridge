@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Extraído da v0.13 preservada em reference/v0.13/.
-"""Estado e renderização extraídos; divisão do decoder virá em etapa própria."""
+"""Estado/decodificação PID; matemática pura em renderer e soma em mixer."""
 from collections import Counter
 import math
 import struct
@@ -51,12 +51,10 @@ OUTPUT_COMPONENTS = ('constant', 'spring', 'damper', 'periodic',
 
 
 class PIDSteeringBridge(PIDPassive):
-    """Decode PID reports to per-effect state; render approximate single-axis torque.
+    """Converte o estado PID em componentes de força de um único eixo.
 
-    Coverage: all defined PID effect families except custom data (kind 3).
-    Some PID semantics (two-axis conditions, envelope direction & multi-axis
-    effect direction) cannot be faithfully reproduced on a DFGT single-axis
-    EV_FF constant actuator; counters expose ignored reports explicitly.
+    Use components() para alimentar o backend sem clipping intermediário.
+    Limitações de ciclo de vida permanecem explícitas na suite de auditoria.
     """
     def __init__(self, clock=time.monotonic, *, velocity_reference=2.0,
                  acceleration_reference=4.0):
@@ -225,6 +223,7 @@ class PIDSteeringBridge(PIDPassive):
         now = self.clock()
         motion = self.motion_estimator.sample(position_raw, now) if motion is None else motion
         result = {key: 0.0 for key in OUTPUT_COMPONENTS}
+        contributions = {key: [] for key in OUTPUT_COMPONENTS}
         # Silêncio do host é legítimo: a vida é definida por Start/Stop,
         # duração e estado PID. O timeout da saída pertence ao backend.
         if not self.armed or self.paused:
@@ -268,11 +267,12 @@ class PIDSteeringBridge(PIDPassive):
             if family is not None:
                 if kind not in (9, 10, 11, 12):
                     force *= effect_projection(item)
-                result[family] += force
+                contributions[family].append(force)
                 if force:
                     self.rendered_by_kind[PID_EFFECT_NAMES[kind]] += 1
         for family in result:
-            result[family] = max(-32767, min(32767, round(result[family]*self.gain)))
+            # Preserve cancelamentos e precisão; o teto fica na soma final.
+            result[family] = math.fsum(contributions[family]) * self.gain
             self.component_peaks[family] = max(self.component_peaks[family],abs(result[family]))
             if result[family]: self.component_ticks[family] += 1
         if result['spring']:
@@ -283,4 +283,5 @@ class PIDSteeringBridge(PIDPassive):
         return result
 
     def raw_level(self, position_raw=8192):
-        return max(-32767,min(32767,sum(self.components(position_raw).values())))
+        """Helper legado já quantizado/limitado; backend deve usar components()."""
+        return max(-32767, min(32767, round(math.fsum(self.components(position_raw).values()))))

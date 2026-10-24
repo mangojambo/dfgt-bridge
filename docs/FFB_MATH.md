@@ -55,3 +55,27 @@ Quando A+F>D, a política do núcleo reduz A e F proporcionalmente para caber em
 Phase e Direction usam centésimos de grau; a fase é avaliada módulo o período antes de somar a fase inicial. Os vetores de onda acompanham new-lg4ff: Sine cruza zero em fase zero; Square começa positivo; Triangle começa no pico positivo; Saw Up começa negativo e Saw Down positivo. A correção de Triangle evita um desvio de quarto de período presente no renderer anterior. A taxa de amostragem física e aliasing não são resolvidos pela matemática da forma de onda.
 
 Comparações de implementação: [new-lg4ff, calculate_constant/ramp/periodic](https://github.com/berarma/new-lg4ff/blob/master/hid-lg4ff.c) e [lg4ff_userspace, mesmas funções](https://github.com/Kethen/lg4ff_userspace/blob/main/force_feedback.c). O segundo também mantém offset separado da magnitude envelopada; essas referências ajudam a verificar o cálculo, sem serem usadas como oráculo de todas as políticas de sobreposição.
+
+Os níveis absolutos e o ataque acima do sustain também são documentados em [DIENVELOPE](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee416625(v=vs.85)) e [Basic Concepts of Force Feedback](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee416225(v=vs.85)).
+
+## Mistura simultânea e clipping
+
+`components()` retorna componentes de amplitude ampla, sem arredondamento ou clipping por família. Cada efeito é calculado com sua direção, envelope ou saturação condicional; em seguida recebe ganho do efeito. As contribuições são somadas com `math.fsum`, depois multiplicadas pelo ganho do dispositivo. Essa soma preserva resíduos pequenos e cancelamentos mesmo entre forças grandes. `raw_level()` é apenas um helper legado com teto/quantização; não deve alimentar o backend novo.
+
+No mixer linear, para componentes B e ganho de saída G:
+
+```text
+T = fsum(B)
+pedido = G*T
+limitado = clamp(pedido, -teto, +teto)
+```
+
+O ganho do efeito é byte/100, ganho do dispositivo byte/255 e ganho G da política de saída é `boost*teto/32767`, preservando a semântica da intensidade existente. Um ajuste periódico opcional é aplicado antes da soma; o padrão é 1.0. A quantização inteira ocorre na saída; slew vem depois, seguido novamente pelo teto para preservar as correções anteriores. A saturação de cada condição faz parte do protocolo; não é um corte arbitrário por família.
+
+Foram removidos do núcleo novo os antigos `spring_share`/`damper_share` e os tetos implícitos de Friction/Inertia. Não houve mudança dessas opções nas referências históricas. Dois Constant +32767 e uma Spring −32767 resultam em +32767; dois componentes de 0,4 resultam em 1 após quantização, sem arredondamento antecipado para zero.
+
+Uma saída finita não pode reproduzir fielmente uma mola acima do teto e também uma vibração sobreposta. Para reservar espaço de forma explícita, o mixer oferece `condition_headroom=h`, **desativado por padrão**. Primeiro soma todas as condições, preservando cancelamentos nesse agregado; então limita esse fundo a `(1-h)*teto`, em unidades de saída já com ganho. Soma os efeitos direcionais/transientes e aplica o teto final. Com h=0,25, uma mola intensa deixa até 25% da faixa para cada sinal do transiente, sem clipping final se o transiente estiver dentro dessa reserva. Essa opção altera deliberadamente a amplitude das condições e não é anunciada como tradução fiel do PID.
+
+`MixResult` separa pedido sem reserva, pedido após reserva, saída limitada, clipping final e redução do agregado condicional. `ConstantOutput.last_mix`, `saturation_ticks` e `condition_limited_ticks` expõem essas diferenças. Números não finitos, overflow e famílias desconhecidas são rejeitados; se uma saída mock já estiver ativa, a política para e desarma antes de propagar o erro. Esses diagnósticos medem comandos calculados, não torque mecânico.
+
+Vetores de seis efeitos simultâneos validam Spring, Damper, Inertia, Friction, Constant e Sine até o backend mock. Outros vetores cobrem ganho combinado, inversões, extrema saturação, reserva opcional e cancelamento de valores grandes. O corpus real permanece restrito aos 132 registros de inicialização; nenhum teste sintético é apresentado como captura do DiRT 5.

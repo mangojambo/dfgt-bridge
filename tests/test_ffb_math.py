@@ -7,6 +7,8 @@ from test_ffb_audit import M
 from dfgt_bridge.ffb.renderer import (FORCE_SCALE, MotionEstimator, MotionState,
                                       condition_force, direction_x, periodic_wave,
                                       signed_unit)
+from dfgt_bridge.ffb.mixer import mix_components
+from dfgt_bridge.ffb.safety import ConstantOutput
 
 
 class MathVectors(unittest.TestCase):
@@ -355,6 +357,123 @@ class EnvelopeTests(MathVectors):
         for kind, values in vectors.items():
             for phase, expected in zip((0, .25, .5, .75), values):
                 self.assertAlmostEqual(periodic_wave(kind, phase), expected)
+
+
+class MixingTests(MathVectors):
+    def test_no_family_clipping_before_opposite_force_cancellation(self):
+        self.constant(32767)
+        self.constant(32767)
+        self.condition()
+        result = self.bridge.components(motion=MotionState(1))
+        self.assertEqual(result['constant'], 65534)
+        self.assertEqual(result['spring'], -32767)
+        self.assertEqual(mix_components(result).limited, 32767)
+
+    def test_multiple_opposite_constants_cancel_exactly(self):
+        for level in (32000, -32000, 25000, -25000):
+            self.constant(level)
+        self.assertEqual(self.bridge.raw_level(), 0)
+
+    def test_gain_is_applied_to_sum_before_final_limit(self):
+        result = mix_components({'constant': 40000, 'spring': -35000}, gain=.5, limit=10000)
+        self.assertEqual(result.requested, 2500)
+        self.assertEqual(result.limited, 2500)
+        self.assertFalse(result.clipped)
+
+    def test_positive_and_negative_clipping_are_symmetric_and_observable(self):
+        for sign in (-1, 1):
+            result = mix_components({'constant': sign*40000}, limit=10000)
+            self.assertEqual(result.unlimited_requested, sign*40000)
+            self.assertEqual(result.limited, sign*10000)
+            self.assertTrue(result.clipped)
+
+    def test_cancellation_preserves_small_residual_without_order_dependence(self):
+        for values in ({'constant': 1e16, 'spring': 1, 'periodic': -1e16},
+                       {'periodic': -1e16, 'spring': 1, 'constant': 1e16}):
+            self.assertEqual(mix_components(values).limited, 1)
+
+    def test_rounding_happens_only_after_cross_family_sum(self):
+        self.constant(1, gain=40)
+        periodic = self.create(5, gain=40)
+        self.bridge.seen(bytes((0x5d, periodic)) + struct.pack('<HhHH', 0, 1, 0, 100))
+        self.assertEqual(self.bridge.raw_level(), 1)  # round(.4+.4), não round(.4)+round(.4).
+
+    def test_six_simultaneous_effects_reach_mock_with_correct_cancellation(self):
+        self.constant(16384)
+        self.condition(9)
+        self.condition(10)
+        self.condition(11)
+        self.condition(12, positive=8192)
+        periodic = self.create(5)
+        self.bridge.seen(bytes((0x5d, periodic)) + struct.pack('<HhHH', 8000, 0, 9000, 100))
+        result = self.bridge.components(motion=MotionState(.25, .5, -1))
+        self.assertEqual(math.fsum(result.values()), 8000.25)
+        motor = ConstantOutput(strength_percent=20, clock=lambda: self.now)
+        motor.tick(result)
+        self.assertEqual(motor.last_sent, 1600)
+        self.assertFalse(motor.last_mix.clipped)
+
+    def test_effect_device_and_user_gain_are_each_applied_once(self):
+        self.constant(16000, gain=25)
+        self.bridge.seen(bytes((0x59, 128)))
+        motor = ConstantOutput(strength_percent=50, boost=2, clock=lambda: self.now)
+        motor.tick(self.bridge.components())
+        self.assertEqual(motor.last_sent, round(16000 * .25 * 128/255 * 2 * motor.cap/32767))
+
+    def test_condition_saturation_precedes_effect_gain(self):
+        self.condition(sat_pos=16384, gain=50)
+        result = self.bridge.components(motion=MotionState(1))
+        self.assertAlmostEqual(result['spring'], -16384/65535 * 32767 * .5)
+
+    def test_optional_reserve_preserves_both_halves_of_transients_under_heavy_spring(self):
+        for transient in (-4096, 0, 4096):
+            result = mix_components({'spring': 65534, 'constant': transient},
+                                    condition_headroom=.25)
+            self.assertEqual(result.limited, .75*32767 + transient)
+            self.assertTrue(result.condition_limited)
+            self.assertFalse(result.clipped)
+        # Sem reserva, documenta o limite físico de uma soma acima do teto.
+        self.assertEqual(mix_components({'spring': 65534, 'constant': -4096}).limited, 32767)
+
+    def test_reserve_preserves_cancellation_inside_conditional_aggregate(self):
+        result = mix_components({'spring': 40000, 'damper': -40000,
+                                 'periodic': 8000}, condition_headroom=.25)
+        self.assertEqual(result.limited, 8000)
+        self.assertFalse(result.condition_limited)
+
+    def test_mock_exposes_clipping_separately_from_condition_limiting(self):
+        linear = ConstantOutput(strength_percent=20, clock=lambda: self.now)
+        linear.tick({'spring': 65534})
+        self.assertEqual(linear.saturation_ticks, 1)
+        reserved = ConstantOutput(strength_percent=20, condition_headroom=.25,
+                                  clock=lambda: self.now)
+        reserved.tick({'spring': 65534})
+        self.assertEqual(reserved.saturation_ticks, 0)
+        self.assertEqual(reserved.condition_limited_ticks, 1)
+
+    def test_mixer_rejects_invalid_values_and_overflow(self):
+        for values in ({'constant': math.nan}, {'constant': math.inf},
+                       {'constant': '100'}, {'unknown': 0},
+                       {'constant': 1e308, 'spring': 1e308}):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                mix_components(values)
+        for kwargs in (dict(gain=-1), dict(gain=math.nan), dict(limit=-1),
+                       dict(condition_headroom=2), dict(periodic_gain=math.inf)):
+            with self.assertRaises(ValueError):
+                mix_components({}, **kwargs)
+
+    def test_invalid_force_stops_and_disarms_existing_mock_output(self):
+        motor = ConstantOutput(clock=lambda: self.now)
+        motor.tick(16000)
+        self.assertTrue(motor.playing)
+        with self.assertRaises(ValueError):
+            motor.tick({'constant': math.nan})
+        self.assertFalse(motor.playing)
+        self.assertFalse(motor.enabled)
+
+    def test_zero_limit_and_zero_gain_never_emit_force(self):
+        self.assertEqual(mix_components({'constant': 32000}, gain=0).limited, 0)
+        self.assertEqual(mix_components({'constant': -32000}, limit=0).limited, 0)
 
 
 if __name__ == '__main__':

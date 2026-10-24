@@ -21,7 +21,7 @@ class PIDTransport:
     ser usado quando o chamador SABE que dois registros são a mesma operação.
     UHID_OUTPUT não tem um ID que permita inferir isso por comparação de bytes.
     """
-    def __init__(self, engine, cache_size=128):
+    def __init__(self, engine, cache_size=128, *, close_terminates=True):
         if type(cache_size) is not int or not 1 <= cache_size <= 4096:
             raise ValueError('Cache deve estar em 1..4096')
         self.engine, self.cache_size = engine, cache_size
@@ -29,6 +29,7 @@ class PIDTransport:
         self.counts = Counter()
         self.last_error = None
         self.closed = False
+        self.close_terminates = close_terminates
 
     def close(self):
         self.closed = True
@@ -115,6 +116,13 @@ class PIDTransport:
         try:
             if len(event) > UHID_EVENT_SIZE:
                 raise ReportError('oversized_uhid_event', errno.EMSGSIZE)
+            if kind == UHID_CLOSE and not self.close_terminates:
+                # CLOSE é o último leitor, não a destruição do UHID. Probes
+                # podem abrir/fechar antes do jogo; não ressuscitar seus efeitos.
+                self.engine.arm()
+                self.requests.clear()
+                self.observations.clear()
+                return ()
             if kind in (UHID_STOP, UHID_CLOSE):
                 self.close()
                 return ()

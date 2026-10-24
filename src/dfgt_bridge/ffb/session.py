@@ -10,14 +10,17 @@ from .transport import PIDTransport
 
 class OfflineSession:
     def __init__(self, clock=time.monotonic, *, capacity=40, strength_percent=20,
-                 backend=None, cache_size=128):
+                 backend=None, cache_size=128, close_terminates=True,
+                 test_limit_s=120):
         backend = MockBackend(clock=clock) if backend is None else backend
         if not isinstance(backend, MockBackend):
             raise ValueError('Sessão offline aceita exclusivamente MockBackend')
         self.engine = PIDSteeringBridge(clock, capacity=capacity)
-        self.transport = PIDTransport(self.engine, cache_size)
-        self.output = ConstantOutput(backend, strength_percent, clock=clock)
+        self.transport = PIDTransport(self.engine, cache_size, close_terminates=close_terminates)
+        self.output = ConstantOutput(backend, strength_percent, clock=clock, test_limit_s=test_limit_s)
         self.position_raw = 8192
+        self.motion = None
+        self.last_components = {}
         self.closed = False
         self.engine.arm()
 
@@ -39,7 +42,10 @@ class OfflineSession:
         if position_raw is not None:
             self.position_raw = position_raw
         try:
-            self.output.tick(self.engine.components(self.position_raw, motion=motion))
+            if motion is not None:
+                self.motion = motion
+            self.last_components = self.engine.components(self.position_raw, motion=self.motion)
+            self.output.tick(self.last_components)
         except BaseException:
             self.close()
             raise

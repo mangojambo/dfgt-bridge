@@ -39,7 +39,9 @@ class ConstantOutput:
         if not (0 <= strength_percent <= max_strength_percent and
                 5 <= max_strength_percent <= 70 and 15 <= rate_hz <= 45):
             raise ValueError('Limites: intensidade inicial 0..máximo, teto 5..70%, taxa 15..45Hz')
-        if not (30 <= test_limit_s <= 240):
+        if test_limit_s is None and not isinstance(dev, MockBackend):
+            raise ValueError('Sessão sem limite global exige MockBackend')
+        if test_limit_s is not None and not (30 <= test_limit_s <= 240):
             raise ValueError('Duração de teste permitida: 30..240s')
         if not math.isfinite(boost) or not 1.0 <= boost <= 12.0:
             raise ValueError('Boost precisa estar entre 1.0 e 12.0')
@@ -112,7 +114,7 @@ class ConstantOutput:
             # Backend expirado durante uma lacuna: retomar pelo slew desde 0.
             self.playing = False
             self.last_sent = 0
-        if self.expired or (self.first_active is not None and
+        if self.expired or (self.test_limit_s is not None and self.first_active is not None and
                             now - self.first_active >= self.test_limit_s):
             if not self.expired:
                 print(f'[FFB físico] Limite de {self.test_limit_s}s atingido; motor parado. '

@@ -96,6 +96,21 @@ class EvdevBackendTests(unittest.TestCase):
             dev.upload_effect(ConstantForce(1000, -1, 160))
         self.assertEqual(self.uploads, [])
 
+    def test_upload_that_finishes_after_deadline_cannot_start_playback(self):
+        dev = self.backend()
+        calls = 0
+        def guard():
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise TimeoutError('upload terminou tarde')
+        dev.freshness_guard = guard
+        with self.assertRaises(TimeoutError):
+            dev.upload_effect(ConstantForce(1000, -1, 160))
+        self.assertEqual(dev.uploads, 1)
+        self.assertNotIn((0x15, 3, 1), self.events())
+        self.assertNotIn((0x15, 0x60, 65535), self.events())
+
     def test_close_erases_and_closes_even_when_unplugged(self):
         dev = self.backend()
         dev.upload_effect(ConstantForce(1000, -1, 160))

@@ -189,6 +189,21 @@ class RunnerTests(unittest.TestCase):
         self.wheel.read_frames.assert_not_called()
         self.assertTrue(replay(self.path)['complete'])
 
+    def test_telemetry_distinguishes_ignored_proprietary_commands_and_pedal_bytes(self):
+        self.args.gas_axis = 'y'
+        self.wheel.state = lambda: [8192, 128, 64, 0, 0, []]
+        self.virtual.events = [output(bytes.fromhex(p)) for p in (
+            'f5000000000000', '0d000000000000', 'f8120000000000')]
+        self.execute()
+        import json
+        footer = json.loads(self.path.read_text().splitlines()[-1])
+        self.assertEqual(footer['runtime']['report_classification']['proprietary_ignored'], 3)
+        self.assertEqual(footer['runtime']['input'], dict(
+            abs_x=8192, abs_y=128, abs_z=64, hid_x=32770, hid_z=255, hid_rz=64,
+            hid_y=128, gas_axis='y', invert_gas=False))
+        self.assertEqual(footer['summary']['counts']['rejected_unsupported_report'], 3)
+        self.assertTrue(replay(self.path)['complete'])
+
     def test_help_and_invalid_motor_options_do_not_open_devices(self):
         with patch.object(runner, 'run', side_effect=AssertionError('must not open')):
             for argv, status in [(['--help'], 0), (['--backend', 'evdev'], 2),

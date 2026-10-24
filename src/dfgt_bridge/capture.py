@@ -7,6 +7,8 @@ import time
 import errno
 from pathlib import Path
 
+from .diagnostics import classify_uhid_result
+
 SCHEMA = 'dfgt-bridge-passive'
 VERSION = 1
 MAX_LINE = 2 * 1024 * 1024
@@ -121,6 +123,7 @@ class Recorder:
             if self.writer is not None:
                 self.writer.append(dict(kind='step', action=action, data=data,
                                         timestamp_ns=timestamp_ns, result=result,
+                                        classification=classify_uhid_result(result) if action == 'uhid' else None,
                                         delivery=dict(mode='virtual' if self.send else 'simulated',
                                                       sent=sent, error=error),
                                         timing=dict(processing_ns=processed-started,

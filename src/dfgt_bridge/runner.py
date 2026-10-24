@@ -9,8 +9,11 @@ import selectors
 import signal
 import sys
 import time
+import struct
+from collections import Counter
 
 from .capture import CaptureWriter, Recorder
+from .diagnostics import classify_uhid_result
 from .input.physical_wheel import PhysicalWheel, SOURCE
 from .passive import PassiveSession
 from .uhid_io import VirtualDevice
@@ -41,7 +44,7 @@ def diagnostic(session, runtime, elapsed, previous_events):
                           created=counts.get('created', 0), freed=counts.get('freed', 0),
                           types=summary['types'], output=counts.get('uhid_6', 0),
                           set_report=counts.get('uhid_13', 0), get_report=counts.get('uhid_9', 0),
-                          invalid=counts.get('invalid', 0), allocation_failures=counts.get('allocation_failures', 0),
+                          raw_rejections=counts.get('invalid', 0), allocation_failures=counts.get('allocation_failures', 0),
                           components=result.get('components', {}), force=result.get('final_force', 0),
                           renderer_total=result.get('renderer_total', 0), clipping=counts.get('clipping', 0),
                           events_per_s=(events-previous_events)/max(elapsed, 1e-9), **runtime),
@@ -57,7 +60,8 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
     session = PassiveSession(origin, capacity=args.capacity, strength_percent=args.strength,
                              gas_axis=args.gas_axis, invert_gas=args.invert_gas)
     runtime = dict(max_processing_ns=0, slow_actions=0, missed_ticks=0,
-                   input_resyncs=0, binding=[])
+                   input_resyncs=0, binding=[], report_classification={}, proprietary_commands={})
+    classifications, proprietary_commands = Counter(), Counter()
     writer = recorder = None
     complete, failure = False, None
     try:
@@ -86,12 +90,27 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
             def dispatch(kind, data, stamp=None):
                 started = time.monotonic_ns()
                 value = recorder.dispatch(kind, data, started if stamp is None else stamp)
+                if kind == 'uhid':
+                    classification = classify_uhid_result(value)
+                    classifications[classification['category']] += 1
+                    if classification['command']:
+                        proprietary_commands[classification['command']] += 1
+                    runtime['report_classification'] = dict(classifications)
+                    runtime['proprietary_commands'] = dict(proprietary_commands)
+                elif kind == 'input':
+                    hid_x, hid_z, hid_rz, hid_y, _, _ = struct.unpack('<HBBBBI', session.last_input[1:])
+                    runtime['input'] = dict(abs_x=data['state'][0], abs_y=data['state'][1],
+                                            abs_z=data['state'][2], hid_x=hid_x, hid_z=hid_z,
+                                            hid_rz=hid_rz, hid_y=hid_y, gas_axis=args.gas_axis,
+                                            invert_gas=args.invert_gas)
                 duration = time.monotonic_ns()-started
                 runtime['max_processing_ns'] = max(runtime['max_processing_ns'], duration)
                 runtime['slow_actions'] += int(duration > 10_000_000)
                 return value
 
             print('G29 046d:c24f PASSIVO; DFGT somente leitura; saída FFB exclusivamente mock.', flush=True)
+            print(f'Acelerador ABS_Y → HID {args.gas_axis.upper()} (invertido={args.invert_gas}); '
+                  'freio ABS_Z → HID Rz; direção ABS_X → HID X16.', flush=True)
             print('Console: race | menu | init | strength 0..60 | summary | quit. Ctrl+C encerra.', flush=True)
             dispatch('input', {'state': wheel.state()})
             next_tick = time.monotonic_ns()

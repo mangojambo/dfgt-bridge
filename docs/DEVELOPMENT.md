@@ -123,3 +123,20 @@ Arquivos novos em `input/`, `uhid_io.py`, `passive.py`, `capture.py`, `replay.py
 Consulte [PASSIVE_RUNNER.md](PASSIVE_RUNNER.md) para comandos preparados e schema. Próxima tarefa: operador coletar corrida real passiva, confirmar identidade/controles/menu FFB e driver virtual, registrar Proton/rota/cenário e conferir replay completo. Probes não são identificáveis com certeza por UHID; fases são anotações humanas, com autoria conservada como desconhecida. Os CSVs antigos continuam insuficientes para validar corrida e a fixture nova de dez minutos é explicitamente sintética.
 
 Permanecem pendentes hardware/Proton reais, associação efetiva de driver, aceitação das notificações PID State, escala/filtros de movimento, tipos/flags/Loop Count usados pelo jogo, latência sustentada e completude dos efeitos suportados. Só depois dessa coleta será revisado um adaptador físico, com limites, deadline independente, emergência/exclusividade e ensaio aprovado. Os launchers e configurações SteamOS permanecem inalterados.
+
+## Regressão do acelerador identificada em capturas reais
+
+As capturas `dirt5-passivo-01.jsonl.gz` e `dirt5-20261024-142711.jsonl.gz`, fornecidas pelo operador, passaram integralmente no replay antes das mudanças. Não foi necessário abrir dispositivos. A mais recente reproduz 21.554 eventos UHID e 12.731 quadros de entrada; a anterior corresponde aos 19.670 eventos UHID e 9.594 quadros relatados. Todos os 22.325 inputs coincidem com a v0.8 em Z, mas a configuração funcional informada era **Y**. Em ambas as capturas, ABS_Y varia 0..255 e HID Y fica fixo em 255.
+
+O CLI agora escolhe Y por padrão e mantém opções explícitas. Foram adicionados testes dourados e 13 amostras reais com proveniência. Nenhuma modificação em descritor, referências ou `src/dfgt_bridge/ffb/`. Os 16 rejeitados de cada sessão são três vetores Logitech conhecidos: autocenter off (5), fixed loop off (10) e LEDs off (1). O novo diagnóstico os distingue de falhas PID/transporte sem executá-los e sem apagar erros brutos.
+
+Estado: **241 testes passando, zero falhas esperadas e zero ignorados**, também com bloqueio de abertura real de dispositivos. Capturas, referências e launchers preservados. Replay com `--verify-compatible` verifica todos os resultados de capturas antigas apesar do novo hash dos fontes; o padrão continua estrito. Reutilização de nome de captura produz erro explicado com sugestão de outro nome, sem sobrescrever.
+
+| Commit | Entrega |
+|---|---|
+| `719bee0` | Padrão Y no CLI e regressões de pedais com bytes reais/dourados |
+| `e5e2089` | Erro de arquivo existente com nome alternativo sugerido |
+| `445f3ae` | Classificação observacional dos pacotes Logitech e telemetria dos pedais |
+| `8644190` | Replay entre versões com equivalência semântica integral obrigatória |
+
+Análise, índices individuais de todos os rejeitados, hashes, fórmulas de entrada e comando atualizado estão em [CAPTURE_COMPARISON_20261024.md](CAPTURE_COMPARISON_20261024.md). Próxima tarefa: o operador repetir o teste passivo em Y, marcar menu/corrida e conferir o acelerador no jogo. A ausência de Start em Damper/Friction explica seus componentes zero nas capturas; não constitui falha matemática. Backend físico continua fora desta etapa.

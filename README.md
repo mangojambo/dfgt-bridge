@@ -26,11 +26,13 @@ Só é necessário Python 3.10+ para os testes offline; não instale `evdev` par
 python3 -B -m unittest discover -s tests -v
 ```
 
-A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **220 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
+A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **241 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
 
 Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. `scripts/run-passive.py` cria o G29 virtual com controles da v0.8 e calcula FFB exclusivamente no mock. `scripts/replay-capture.py` valida as capturas offline. Os entrypoints inserem `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
 
 Comandos para execução passiva, captura completa, marcação de fases e replay estão em [PASSIVE_RUNNER.md](docs/PASSIVE_RUNNER.md). Nenhum runner foi iniciado em dispositivos nesta entrega. Para repetir os testes com bloqueio adicional de abertura real de dispositivos: `python3 -B -W error::ResourceWarning scripts/test-offline.py`.
+
+As [duas capturas reais fornecidas pelo operador](docs/CAPTURE_COMPARISON_20261024.md) passaram no replay offline. O CLI agora usa acelerador em **Y por padrão**, reproduzindo a configuração funcional v0.8 (`--gas-axis y`); o comando anterior sem essa opção enviava o pedal em Z e deixava Y em 255. O descritor e a matemática FFB permanecem intactos.
 
 ## Compatibilidade com caminhos existentes
 
@@ -59,6 +61,7 @@ Fora desta restrição, um clone convencional usa `.git/` normalmente; o wrapper
 - [Transporte, pool, timeline e scheduler offline](docs/PID_TRANSPORT.md)
 - [Plano de integração com a v0.8 e estado da etapa passiva](docs/INTEGRATION_PLAN.md)
 - [Runner passivo, comandos e contrato de captura/replay](docs/PASSIVE_RUNNER.md)
+- [Comparação das capturas reais e correção do acelerador](docs/CAPTURE_COMPARISON_20261024.md)
 - [Regras para agentes e colaboradores](AGENTS.md)
 
 Testes físicos, alteração de drivers e avaliação de comandos proprietários Logitech dependem de aprovação separada.

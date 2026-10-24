@@ -4,6 +4,8 @@
 
 A fachada e o runner passivo deste plano foram implementados em arquivos novos, com testes offline e sem execução em dispositivos. `scripts/run-passive.py` usa a entrada readonly e somente MockBackend; `scripts/replay-capture.py` confere capturas em memória. As referências e launchers continuam intactos. Consulte [PASSIVE_RUNNER.md](PASSIVE_RUNNER.md) para os comandos preparados, schema de captura, limites e critérios pendentes de validação real.
 
+Duas capturas reais posteriores, fornecidas pelo operador, já foram conferidas offline. Elas revelaram a diferença de configuração Z/Y do acelerador; o CLI foi corrigido para Y. A próxima coleta passiva deve confirmar o pedal no jogo com esse mapeamento. Veja [CAPTURE_COMPARISON_20261024.md](CAPTURE_COMPARISON_20261024.md). A associação observada a `hid-universal-pidff` e os efeitos calculados não autorizam ainda conexão ao motor.
+
 As decisões de CLOSE/OPEN, GET Input, estado PID assíncrono e duração ilimitada exclusivamente mock estão detalhadas em [PID_TRANSPORT.md](PID_TRANSPORT.md). A próxima fase é a coleta passiva real pelo operador, ainda sem backend físico. O plano original abaixo registra a sequência e suas restrições; a integração ao motor permanece não executada.
 
 ## Plano original da etapa anterior

@@ -1,6 +1,6 @@
 # Runner passivo e captura reproduzível
 
-Implementado em `fix/ffb-core`, sem execução em hardware nesta entrega. O runner cria o G29 virtual e lê o DFGT quando iniciado pelo operador. Toda força calculada termina exclusivamente em `MockBackend`; não existe opção de backend físico. Os launchers históricos não foram redirecionados.
+Implementado em `fix/ffb-core`. Duas capturas reais fornecidas pelo operador foram analisadas offline em [CAPTURE_COMPARISON_20261024.md](CAPTURE_COMPARISON_20261024.md). O runner cria o G29 virtual e lê o DFGT quando iniciado pelo operador. Toda força calculada termina exclusivamente em `MockBackend`; não existe opção de backend físico. Os launchers históricos não foram redirecionados.
 
 ## Execução no SteamOS
 
@@ -19,13 +19,14 @@ Capturar uma corrida completa, incluindo inicialização e saída:
 
 ```sh
 sudo /usr/bin/python3 -B scripts/run-passive.py \
+  --gas-axis y \
   --capture "captures/dirt5-passivo-$(date +%Y%m%d-%H%M%S).jsonl.gz" \
   --proton 'INFORMAR VERSÃO EXATA' \
   --scenario 'INFORMAR carro, pista, clima e ajustes FFB do jogo' \
   --hid-route unknown
 ```
 
-O arquivo é criado exclusivamente, nunca sobrescrito. `.jsonl.gz` comprime em streaming sem remover bytes; `.jsonl` também funciona. Capturas completas podem ser grandes, especialmente sem gzip, e permanecem ignoradas em `captures/`. Evite redirecionar stdin se quiser marcar as fases pelo console.
+O arquivo é criado exclusivamente, nunca sobrescrito. Se existir, a mensagem preserva o erro e sugere um nome alternativo disponível, sem criá-lo automaticamente. `.jsonl.gz` comprime em streaming sem remover bytes; `.jsonl` também funciona. Capturas completas podem ser grandes, especialmente sem gzip, e permanecem ignoradas em `captures/`. Evite redirecionar stdin se quiser marcar as fases pelo console.
 
 Depois de iniciar o runner, abrir o jogo usando a configuração já existente. No terminal do runner, os comandos são:
 
@@ -42,14 +43,14 @@ Marcar `menu` ao entrar no jogo, `race` ao começar a corrida e `menu` depois de
 
 UHID não fornece PID de processo nem uma etiqueta “DiRT 5”. Todos os relatórios mantêm `producer=unattributed`; as fases são anotações explícitas do operador, não prova de autoria. Comandos de driver podem aparecer durante qualquer fase. `--proton`, `--scenario` e `--hid-route` também são anotações; não se infere rota hidraw/evdev somente pelo rtype. O resumo separa contagens por fase para investigar probes sem descartá-los.
 
-O diagnóstico periódico inclui associação de driver e capacidades FF virtuais lidas em sysfs, eventos/s, OUTPUT/SET/GET, efeitos por tipo, ativos/pausados/liberados, falhas do pool, relatórios inválidos, componentes de força, resultante, clipping, atrasos e ressincronizações. Há uma linha por segundo e um resumo completo ao sair. `summary` é uma impressão adicional solicitada pelo operador.
+O diagnóstico periódico inclui associação de driver e capacidades FF virtuais lidas em sysfs, eventos/s, OUTPUT/SET/GET, efeitos por tipo, ativos/pausados/liberados, falhas do pool, rejeições brutas, classificação separada de comandos proprietários ignorados e falhas PID/transporte, componentes de força, resultante, clipping, atrasos e ressincronizações. Exibe também ABS_X/Y/Z físicos e X/Z/Rz/Y virtuais, eixo escolhido e inversão. Há uma linha por segundo e um resumo completo ao sair. `summary` é uma impressão adicional solicitada pelo operador.
 
 O runner **não corrige associação de driver**. A identidade G29 pode selecionar um driver Logitech em vez de um driver PID; a configuração que fazia a v0.8 reconhecer FFB precisa ser conferida na coleta. Ausência de tráfego PID ou driver inadequado não é sucesso. Os campos `binding` e `ff_capabilities` ajudam a diagnosticar isso, sem modificar SteamOS/udev/Steam.
 
 ## Contrato de entrada e transporte
 
 - Descritor, nome, BUS_USB, VID/PID `046d:c24f`, versão `0x0110` e bytes de Input `0x01` são comparados com a v0.8 por extração AST offline. O runner não importa nem executa referências.
-- Direção ABS_X 0..16383 vira X16; acelerador ABS_Y e freio ABS_Z preservam 0..255. Acelerador em Z por padrão; `--gas-axis z/y/both` e `--invert-gas` conservam as opções da baseline. D-pad e os 25 botões mantêm seus bits.
+- Direção ABS_X 0..16383 vira X16; acelerador ABS_Y e freio ABS_Z preservam 0..255. **Acelerador em Y por padrão no CLI**, correspondendo à configuração funcional v0.8 do DiRT 5; `--gas-axis z/y/both` e `--invert-gas` continuam disponíveis. As APIs de baixo nível conservam o default legado Z para compatibilidade; o runner passa sua configuração explicitamente. D-pad e os 25 botões mantêm seus bits.
 - Inicialmente lê os três eixos; hat neutro e conjunto de botões vazio repetem a v0.8. SYN_DROPPED descarta eventos até SYN_REPORT e consulta o estado atual, evitando controles presos.
 - Timestamps de SYN_REPORT monotônicos alimentam o estimador; eventos FFB e ticks reutilizam a amostra. Derivadas expiram após 250 ms. Posição e relatórios de controles continuam sendo transmitidos. O alvo ABI de entrada é SteamOS Linux x86_64.
 - Somente `PIDTransport.handle()` aplica um evento. Não há respondedor legado paralelo. Retries com request ID equivalente são deduplicados; dois OUTPUT idênticos continuam sendo duas operações legítimas. Não existe correlação comprovável entre OUTPUT e SET_REPORT somente pelos bytes.
@@ -74,6 +75,7 @@ Cada linha é um objeto JSON, opcionalmente dentro de gzip. `schema=dfgt-bridge-
 | Result / error,reason,renderer_ignored | Rejeição, duplicação, clipping, gate/slew ou condição de eixo não suportado; sem ocultar descartes |
 | Step / delivery | Quantas escritas virtuais completas foram concluídas e eventual erro de I/O |
 | Step / timing | Tempo real de processamento e entrega em ns; diagnóstico, sem dirigir o relógio do replay |
+| Step / classification | Anotação opcional v1: categoria e comando conhecido; mantém erro bruto, sem executar protocolo proprietário |
 | Footer | Completude, resumo determinístico, causa da saída, driver/capacidades e métricas de latência observadas |
 | Todos / seq,previous,sha256 | Sequência e encadeamento SHA-256 para detectar perda, duplicação, reordenação e alteração acidental |
 
@@ -88,7 +90,7 @@ python3 -B scripts/replay-capture.py captures/NOME-DA-CAPTURA.jsonl.gz
 python3 -B -W error::ResourceWarning scripts/test-offline.py
 ```
 
-Replay não abre dispositivos nem importa as classes de I/O. Recria `PassiveSession` com configuração e relógio gravados, usa o mesmo transporte/decoder/pool/renderer e compara **todas** as respostas, notificações, mudanças, hashes de estado, componentes, forças e ações do mock. Mede também consistência de entrega e resumo final. Hash dos fontes e contrato do descritor precisam coincidir; uma captura de versão anterior exige checkout daquela implementação, ou migração de formato deliberada. As medições de latência são verificadas como metadados, não reexecutadas como tempo de CPU.
+Replay não abre dispositivos nem importa as classes de I/O. Recria `PassiveSession` com configuração e relógio gravados, usa o mesmo transporte/decoder/pool/renderer e compara **todas** as respostas, notificações, mudanças, hashes de estado, componentes, forças e ações do mock. Mede também consistência de entrega e resumo final. Hash dos fontes e contrato do descritor precisam coincidir no modo estrito. Para fontes diferentes, pode-se fazer checkout da implementação original ou usar explicitamente `--verify-compatible`: esse modo permite somente hash de fontes diferente, mantendo todas as verificações semânticas e marcando `implementation_match=false`. Só retorna `compatibility_verified=true` depois de conferir a captura completa. Não ignora divergências e não altera o eixo registrado. As classificações opcionais são verificadas quando presentes. As medições de latência são verificadas como metadados, não reexecutadas como tempo de CPU.
 
 Saída CLI: 0 = replay completo conferido; 1 = erro de integridade/semântica/formato/I/O; 2 = prefixo coerente, porém captura incompleta ou entrega com falha. Ausência de footer nunca equivale a corrida validada. Linha ou gzip truncados podem impedir validar o último prefixo e produzir código 1. Um replay completo sem forças, sem alocações ou sem fase de corrida também não comprova FFB do jogo; verificar contagens e `nonzero_force_samples`.
 

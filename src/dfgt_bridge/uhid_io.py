@@ -4,6 +4,7 @@ import os
 import select
 import struct
 import time
+import uuid
 
 from .ffb.transport import UHID_EVENT_SIZE
 from .input.virtual_g29 import create_event
@@ -13,8 +14,9 @@ class VirtualDevice:
     def __init__(self):
         self.fd = os.open('/dev/uhid', os.O_RDWR | os.O_CLOEXEC | os.O_NONBLOCK)
         self.created = False
+        self.owner_token = f'dfgt-bridge-{os.getpid()}-{uuid.uuid4().hex}'
         try:
-            self.write(create_event())
+            self.write(create_event(phys=self.owner_token))
             self.created = True
         except BaseException:
             self.close()

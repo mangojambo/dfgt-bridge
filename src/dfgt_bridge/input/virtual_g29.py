@@ -80,9 +80,11 @@ def report(state, gas_axis='z', invert_gas=False):
     return b'\x01' + struct.pack('<HBBBBI', x, z_gas, brake, y_gas, hat, buttons)
 
 
-def create_event():
+def create_event(*, phys=''):
+    if not isinstance(phys, str) or '\0' in phys or len(phys.encode('ascii')) > 63:
+        raise ValueError('Identificador UHID deve ser ASCII, sem NUL, até 63 bytes')
     rd = descriptor()
-    body = NAME.encode()[:127].ljust(128, b"\0") + bytes(128)
+    body = NAME.encode()[:127].ljust(128, b"\0") + phys.encode('ascii').ljust(64, b'\0') + bytes(64)
     body += struct.pack("=HHIIII", len(rd), 3, VENDOR, PRODUCT, 0x0110, 0)
     return struct.pack("=I", 11) + body + rd
 

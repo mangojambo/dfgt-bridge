@@ -324,6 +324,7 @@ def main(argv=None):
         for name in DEFAULTS:
             setattr(args, name, profile[name])
         args.mapping = profile['mapping']
+        args.preset = profile['preset']
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
     if args.ffb_strength > args.ffb_max_strength:
@@ -342,6 +343,8 @@ def main(argv=None):
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
     stop = {'reason': None}
+    if args.preset == 'gears':
+        print('Marchas prontas: possíveis conflitos com menus/ações dos botões; configure as marchas no jogo.', flush=True)
     previous = {}
     def interrupted(number, frame):
         stop['reason'] = signal.Signals(number).name

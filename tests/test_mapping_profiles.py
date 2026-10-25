@@ -1,7 +1,7 @@
 """Perfis, botões e GUI model inteiramente offline; vetores sintéticos rotulados."""
 import copy
-from contextlib import closing
-import json
+from contextlib import redirect_stderr
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,15 +9,11 @@ from unittest.mock import patch
 
 from test_ffb_audit import ROOT
 from dfgt_bridge.config import DEFAULTS, ProfileStore, default_profile, validate_profile, duration
-from dfgt_bridge.input.mapping import preset, map_state, active_sources, TARGET_NAMES, warnings
-from dfgt_bridge.input.virtual_g29 import report, descriptor
+from dfgt_bridge.input.mapping import preset
 from dfgt_bridge.mapping_editor import MappingEditor, MappingConflict
 from dfgt_bridge.supervised import SupervisedPolicy
 from dfgt_bridge.backends.mock import MockBackend
 from dfgt_bridge.ffb.effects import OUTPUT_COMPONENTS
-from dfgt_bridge.passive import PassiveSession
-from dfgt_bridge.capture import CaptureWriter, Recorder
-from dfgt_bridge.replay import replay
 from dfgt_bridge import runner
 
 
@@ -147,3 +143,14 @@ class ProfileTests(unittest.TestCase):
         for value in ('infinity', 0, -1, 120.5, True):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 duration(value)
+
+    def test_cli_save_and_invalid_arguments_preserve_shared_profile_file(self):
+        with patch.object(runner, 'run'), patch.object(runner.signal, 'signal'):
+            self.assertEqual(runner.main(['--profiles-file', str(self.store.path), '--save-profile',
+                                         '--ffb-seconds', 'unlimited', '--preset', 'g29']), 0)
+        self.assertEqual(self.store.load(), default_profile())
+        original = self.store.path.read_bytes()
+        with redirect_stderr(io.StringIO()), patch.object(runner, 'run') as run, self.assertRaises(SystemExit):
+            runner.main(['--profiles-file', str(self.store.path), '--save-profile', '--bind-timeout', '0'])
+        run.assert_not_called()
+        self.assertEqual(self.store.path.read_bytes(), original)

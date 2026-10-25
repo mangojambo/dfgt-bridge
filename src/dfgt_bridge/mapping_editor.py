@@ -109,6 +109,9 @@ class MappingEditor:
         virtual.extend(s for s in active_sources(mapped) if s.startswith('hat:'))
         packet = report(mapped, self.profile['gas_axis'], self.profile['invert_gas'])
         hid_axes = dict(zip(('X', 'Z', 'Rz', 'Y'), struct.unpack('<HBBBBI', packet[1:])[:4]))
+        notes = warnings(self.profile['mapping'])
+        if self.profile['preset'] == 'gears':
+            notes.insert(0, 'Marchas prontas: possíveis conflitos com menus/ações dos botões; configure as marchas no jogo.')
         return dict(physical=sorted(active_sources(self.state)), virtual=sorted(virtual),
                     state=mapped, physical_axes=self.state[:3], hid_axes=hid_axes, report=packet.hex(),
-                    warnings=warnings(self.profile['mapping']))
+                    warnings=notes)

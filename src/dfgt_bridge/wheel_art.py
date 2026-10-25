@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Renderizador pequeno dos SVGs próprios em Canvas Tk, sem dependências gráficas extras."""
+"""Render original SVG controls on a Tk canvas without extra graphics dependencies."""
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -11,8 +11,9 @@ def controls(model):
 
 
 class WheelArt:
-    def __init__(self, canvas, model, on_select):
+    def __init__(self, canvas, model, on_select, translate=None):
         self.canvas, self.model, self.on_select = canvas, model, on_select
+        self.translate = translate or (lambda _key: None)
         self.active, self.selected, self.detected = set(), None, None
         self.canvas.bind('<Configure>', lambda event: self.draw(event.width, event.height))
         self.draw(430, 430)
@@ -41,7 +42,8 @@ class WheelArt:
                 points = [xy(*p.split(',')) for p in a['points'].split()]
                 item = self.canvas.create_polygon(*[v for p in points for v in p], **opts)
             elif kind == 'text':
-                item = self.canvas.create_text(*xy(a['x'], a['y']), text=e.text,
+                label = self.translate(a.get('data-ui-key')) if a.get('data-ui-key') else None
+                item = self.canvas.create_text(*xy(a['x'], a['y']), text=label or e.text,
                     fill=a.get('fill', 'white'), font=('DejaVu Sans', max(6, round(float(a.get('font-size', 12))*scale)) ))
             else:
                 continue

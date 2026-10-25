@@ -1,4 +1,4 @@
-"""Perfis, botões e GUI model inteiramente offline; vetores sintéticos rotulados."""
+"""Profiles, mappings, and GUI models are verified offline with labeled vectors."""
 import copy
 from contextlib import redirect_stderr
 import io
@@ -101,6 +101,20 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(update=update), self.assertRaises(ValueError):
                 self.store.save('dirt5', dict(default_profile(), **update))
             self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_profile_rename_and_delete_are_atomic_and_preserve_other_profiles(self):
+        self.store.save('dirt5', default_profile())
+        other = default_profile();other['ffb_strength'] = 75
+        self.store.save('other', other)
+        before = self.store.path.stat().st_mode & 0o777
+        self.store.rename_profile('other', 'renamed')
+        self.assertEqual(self.store.load('renamed'), other)
+        self.assertEqual(self.store.load('dirt5'), default_profile())
+        with self.assertRaises(ValueError):self.store.rename_profile('renamed', 'dirt5')
+        self.store.delete_profile('renamed')
+        self.assertEqual(self.store.read(), {'dirt5': default_profile()})
+        with self.assertRaises(ValueError):self.store.delete_profile('renamed')
+        self.assertEqual(self.store.path.stat().st_mode & 0o777, before)
 
     def test_unlimited_profile_keeps_watchdog_and_emergency(self):
         dev = MockBackend(clock=lambda: policy.now_ns/1e9)

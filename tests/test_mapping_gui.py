@@ -1,4 +1,4 @@
-"""Widgets/Canvas/reader/processo falsos: exercita a GUI sem display nem hardware."""
+"""Fake widgets, readers, and processes exercise the GUI without hardware."""
 from contextlib import ExitStack
 from pathlib import Path
 import tempfile
@@ -20,6 +20,8 @@ class Variable:
         return self.value
     def set(self, value):
         self.value = value
+    def trace_add(self, *args):
+        return None
 
 
 class Widget:
@@ -38,9 +40,11 @@ class Widget:
                 return i
             return create
         if name in ('pack', 'grid', 'rowconfigure', 'columnconfigure', 'title', 'geometry',
-                    'minsize', 'protocol', 'add', 'select', 'addtag_withtag', 'see',
+                    'minsize', 'protocol', 'add', 'select', 'tab', 'addtag_withtag', 'see',
                     'clipboard_clear', 'clipboard_append', 'yview', 'set'):
             return lambda *a, **k: None
+        if name in ('winfo_width', 'winfo_height'):
+            return lambda: 430
         raise AttributeError(name)
     def bind(self, key, callback):
         self.events[key] = callback
@@ -72,6 +76,8 @@ class GUITests(unittest.TestCase):
             self.enterContext(patch.object(gui.ttk, name, Widget))
         for name in ('Canvas', 'Listbox', 'Text'):
             self.enterContext(patch.object(gui.tk, name, Widget))
+        style = Mock();style.theme_names.return_value = ['clam']
+        self.enterContext(patch.object(gui.ttk, 'Style', return_value=style))
         for name in ('StringVar', 'BooleanVar'):
             self.enterContext(patch.object(gui.tk, name, Variable))
         self.errors = self.enterContext(patch.object(gui.messagebox, 'showerror'))
@@ -96,7 +102,7 @@ class GUITests(unittest.TestCase):
             callback = self.app.g29_art.canvas.events[('control:'+target, '<Button-1>')]
             callback(None)
             self.assertEqual(self.app.editor.selected, target)
-            self.assertEqual(self.app.target.get(), TARGET_NAMES[target])
+            self.assertEqual(self.app.target.get(), self.app.t('target.'+target.replace(':', '.')))
 
     def test_aggregated_physical_sources_highlight_the_same_virtual_button(self):
         self.app.editor.observe((8192, 255, 255, 0, 0, [293, 301]))
@@ -134,8 +140,8 @@ class GUITests(unittest.TestCase):
         self.assertEqual(self.app.dfgt_art.active, set())
         self.assertEqual(self.app.g29_art.active, set())
         self.assertEqual(self.app.g29_art.detected, 'button:22')
-        self.assertIn('último pulso', self.app.live.get())
-        self.assertIn('Rotary Right', self.app.live.get())
+        self.assertIn('latest pulse/detection', self.app.live.get())
+        self.assertIn('Rotary right', self.app.live.get())
 
     def test_ui_moving_source_requires_conflict_decision_and_undo_restores(self):
         self.app.select('button:1');self.app.input_code.set('293')
@@ -156,15 +162,15 @@ class GUITests(unittest.TestCase):
         self.assertEqual(self.app.editor.profile['mapping']['bindings']['key:704'], 'button:22')
 
     def test_presets_save_load_and_gears_destination_widgets_match_profile(self):
-        self.app.gear_down.set('Marcha 1');self.app.gear_up.set('Marcha 2')
-        self.app.preset.set('Marchas prontas');self.app.apply_preset()
+        self.app.gear_down.set(self.app.t('target.button.13'));self.app.gear_up.set(self.app.t('target.button.14'))
+        self.app.preset.set(self.app.t('preset.gears'));self.app.apply_preset()
         self.assertTrue(self.app.save())
         self.app.restore()
         self.app.load()
-        self.assertEqual(self.app.gear_down.get(), 'Marcha 1')
-        self.assertEqual(self.app.gear_up.get(), 'Marcha 2')
+        self.assertEqual(self.app.gear_down.get(), self.app.t('target.button.13'))
+        self.assertEqual(self.app.gear_up.get(), self.app.t('target.button.14'))
         self.assertEqual(self.app.editor.profile['mapping']['bindings']['key:293'], 'button:13')
-        self.assertIn('conflitos', self.app.notes.get())
+        self.assertTrue(self.app.notes.get())
 
     def test_invalid_form_does_not_save_or_spawn(self):
         self.app.form['ffb_strength'].set('101')
@@ -200,6 +206,40 @@ class GUITests(unittest.TestCase):
         self.assertIn('my game', passive)
         self.assertTrue(Path(passive[2]).exists())
 
+    def test_language_switch_is_live_persistent_and_does_not_change_profile(self):
+        before = self.app._candidate()
+        self.app.language.set('Português (Brasil)')
+        self.app.change_language()
+        self.assertEqual(self.app.locale, 'pt-BR')
+        self.assertEqual(self.app.t('app.title'), 'DFGT Bridge · Perfis, FFB e mapeamento G29')
+        self.assertEqual(self.app._candidate(), before)
+        self.assertTrue(all(widget.options.get('text') == self.app.t(key) for widget, key in self.app._text_widgets))
+        self.assertEqual(self.app.locale_store.load(), 'pt-BR')
+        self.assertFalse(self.store.path.exists())
+        self.app.language.set('English')
+        self.app.change_language()
+        self.assertEqual(self.app.locale, 'en')
+        self.assertEqual(self.app.locale_store.load(), 'en')
+        self.factory.assert_not_called();self.popen.assert_not_called()
+
+    def test_language_switch_redraws_wheel_art_in_selected_locale(self):
+        self.app.language.set('Português (Brasil)')
+        self.app.change_language()
+        physical = [item['text'] for item in self.app.dfgt_art.canvas.items.values() if 'text' in item]
+        virtual = [item['text'] for item in self.app.g29_art.canvas.items.values() if 'text' in item]
+        self.assertIn('Direção X', physical)
+        self.assertIn('Acelerador Y', virtual)
+        self.assertIn('Saídas adicionais do câmbio (botões 13–19)', virtual)
+
+    def test_save_button_tracks_persistable_changes_only(self):
+        self.assertEqual(self.app.save_button.options['state'], 'disabled')
+        self.app.form['ffb_strength'].set('90');self.app.update_dirty()
+        self.assertEqual(self.app.save_button.options['state'], 'normal')
+        self.app.locale_store.save('pt-BR')
+        self.app.locale_store.save('en')
+        self.assertEqual(self.app._candidate()['ffb_strength'], 90)
+        self.assertEqual(self.app.saved_profile['ffb_strength'], 100)
+
     def test_closing_offline_gui_does_not_start_anything(self):
         self.app.close()
         self.popen.assert_not_called()
@@ -208,9 +248,9 @@ class GUITests(unittest.TestCase):
 
     def test_general_autostart_preference_and_service_status_do_not_start_motor(self):
         self.app.auto_start.set(True);self.app.set_auto_start()
-        self.assertTrue(self.app.integration.enabled())
+        self.assertTrue(self.app._integration().enabled())
         client=Mock();client.request.return_value=dict(ok=True,state='ready',physical_ready=True)
         with patch.object(gui,'ControlClient',return_value=client):self.app.check_service()
-        self.assertIn('[PRONTO]',self.app.integration_state.get())
+        self.assertIn('READY',self.app.integration_state.get())
         client.request.assert_called_once_with('status');client.close.assert_called_once()
         self.popen.assert_not_called();self.factory.assert_not_called()

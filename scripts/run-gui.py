@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GUI local; abrir a janela não cria UHID, captura nem saída de motor."""
+"""Local GUI; opening the window does not create UHID, captures, or motor output."""
 from pathlib import Path
 import sys
 

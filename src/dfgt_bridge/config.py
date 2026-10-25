@@ -86,19 +86,41 @@ class ProfileStore:
     def load(self, name='dirt5'):
         return copy.deepcopy(self.read().get(self.name(name), default_profile()))
 
-    def save(self, name, profile):
-        profiles = self.read()
-        profiles[self.name(name)] = validate_profile(profile)
-        if len(profiles) > 100:
-            raise ValueError('Máximo de 100 perfis')
+    def _write(self, profiles):
         encoded = json.dumps(dict(version=1, profiles=profiles), ensure_ascii=False, indent=2, allow_nan=False)+'\n'
         if len(encoded.encode('utf-8')) > 1_048_576:
             raise ValueError('Arquivo de perfis excessivo')
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # Substituição atômica: leitor nunca encontra metade de um JSON.
+        # Atomic replacement keeps readers from observing a partially written profile file.
         with tempfile.NamedTemporaryFile(mode='w', dir=self.path.parent, prefix='.profiles-', delete=False) as out:
             temporary = Path(out.name)
             out.write(encoded)
             out.flush()
             os.fsync(out.fileno())
         os.replace(temporary, self.path)
+
+    def save(self, name, profile):
+        profiles = self.read()
+        profiles[self.name(name)] = validate_profile(profile)
+        if len(profiles) > 100:
+            raise ValueError('Máximo de 100 perfis')
+        self._write(profiles)
+
+    def rename_profile(self, old_name, new_name):
+        old_name, new_name = self.name(old_name), self.name(new_name)
+        profiles = self.read()
+        if old_name not in profiles:
+            raise ValueError('Perfil não encontrado')
+        if new_name != old_name and new_name in profiles:
+            raise ValueError('Já existe um perfil com esse nome')
+        if old_name != new_name:
+            profiles[new_name] = profiles.pop(old_name)
+            self._write(profiles)
+
+    def delete_profile(self, name):
+        name = self.name(name)
+        profiles = self.read()
+        if name not in profiles:
+            raise ValueError('Perfil não encontrado')
+        del profiles[name]
+        self._write(profiles)

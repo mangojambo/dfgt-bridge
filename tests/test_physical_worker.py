@@ -113,6 +113,19 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(result['summary']['strength'], 0)
         self.assertEqual(result['summary']['uploads'], 0)
 
+    def test_f10_reports_force_pipeline_and_io_counters(self):
+        self.channel.messages = [self.frame()]
+        self.keys.read.side_effect = [[], [68]] + [[]]*500
+        self.run_worker(strength=100, maximum=100)
+        line = next(line for line in self.stdout.getvalue().splitlines() if line.startswith('[FFB F10] '))
+        value = json.loads(line[len('[FFB F10] '):])
+        self.assertEqual(value['force_pipeline']['user_strength_percent'], 100)
+        self.assertEqual(value['force_pipeline']['maximum_percent'], 100)
+        self.assertEqual(value['force_pipeline']['user_gain'], 1)
+        self.assertIn('uploads_per_second', value['force_pipeline'])
+        self.assertIn('loss_percent', value['force_pipeline'])
+        self.assertIn('last_io_ns', value['io'])
+
     def test_stop_epoch_rejects_inflight_frame_from_before_reset(self):
         self.epoch.value = 2
         self.channel.messages = [self.frame(epoch=1)]

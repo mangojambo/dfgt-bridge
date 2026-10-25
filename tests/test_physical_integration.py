@@ -62,3 +62,13 @@ class PhysicalIntegrationTests(unittest.TestCase):
         with patch.object(runner, 'run') as run, patch.object(runner.signal, 'signal'):
             self.assertEqual(runner.main(['--ffb-polarity', '-1']), 0)
         self.assertFalse(run.call_args.args[0].enable_ffb)
+
+    def test_explicit_full_scale_and_slew_reach_physical_process_configuration(self):
+        self.args.enable_ffb = True
+        self.args.ffb_strength = self.args.ffb_max_strength = 100
+        self.args.ffb_slew_rate = 327670
+        factory = Mock(return_value=FakePhysical())
+        self.execute(physical_factory=factory)
+        self.assertEqual(factory.call_args.kwargs['config']['strength'], 100)
+        self.assertEqual(factory.call_args.kwargs['config']['maximum'], 100)
+        self.assertEqual(factory.call_args.kwargs['config']['slew_per_s'], 327670)

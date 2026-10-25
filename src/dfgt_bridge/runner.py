@@ -69,6 +69,8 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                            maximum=getattr(args, 'ffb_max_strength', 20),
                            polarity=getattr(args, 'ffb_polarity', 1),
                            session_s=getattr(args, 'ffb_seconds', 120), require_game=True)
+    if getattr(args, 'ffb_slew_rate', None) is not None:
+        physical_config['slew_per_s'] = args.ffb_slew_rate
     trace_path = getattr(args, 'physical_trace', None)
     if enable_ffb and not trace_path and args.capture:
         trace_path = args.capture + '.ffb.jsonl.gz'
@@ -277,8 +279,10 @@ def main(argv=None):
     parser.add_argument('--identity', choices=('g29',), default='g29', help='Identidade virtual fixa preservada')
     parser.add_argument('--bind-timeout', type=float, default=25, help='Prazo de prontidão PIDFF/EVDEV/FF, 1..60s')
     parser.add_argument('--enable-ffb', action='store_true', help='Autoriza saída física DFGT supervisionada')
-    parser.add_argument('--ffb-strength', type=int, choices=range(0, 11), default=10, metavar='0..10')
-    parser.add_argument('--ffb-max-strength', type=int, choices=range(10, 31), default=20, metavar='10..30')
+    parser.add_argument('--ffb-strength', type=int, choices=range(0, 101), default=10, metavar='0..100')
+    parser.add_argument('--ffb-max-strength', type=int, choices=range(0, 101), default=20, metavar='0..100')
+    parser.add_argument('--ffb-slew-rate', type=float, default=16383.5, metavar='UNIDADES/S',
+                        help='Variação máxima por segundo; padrão 16383.5 (0→100%% em 2s)')
     parser.add_argument('--ffb-polarity', type=int, choices=(-1, 1), default=1)
     parser.add_argument('--ffb-seconds', type=int, choices=range(30, 241), default=120, metavar='30..240')
     parser.add_argument('--keyboard-event', help='Teclado evdev explícito; somente com --enable-ffb')
@@ -296,6 +300,10 @@ def main(argv=None):
                         help='Rota anotada; não é detectada a partir dos bytes')
     parser.add_argument('--scenario', default='unknown', help='Carro/pista/ajustes anotados')
     args = parser.parse_args(argv)
+    if args.ffb_strength > args.ffb_max_strength:
+        parser.error('--ffb-strength não pode exceder --ffb-max-strength')
+    if not __import__('math').isfinite(args.ffb_slew_rate) or args.ffb_slew_rate <= 0:
+        parser.error('--ffb-slew-rate deve ser finito e positivo')
     if not __import__('math').isfinite(args.bind_timeout) or not 1 <= args.bind_timeout <= 60:
         parser.error('--bind-timeout deve ser 1..60 segundos')
     if args.game_pid is not None and args.game_pid < 1:

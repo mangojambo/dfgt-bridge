@@ -63,9 +63,9 @@ class WorkerTests(unittest.TestCase):
             self.quit.value = 1
         return self.now
 
-    def run_worker(self, require_game=False):
+    def run_worker(self, require_game=False, strength=10, maximum=20):
         worker.worker(self.channel, self.status, self.commands, self.epoch, self.emergency,
-                      self.quit, 'fake', dict(strength=10, maximum=20, polarity=1, session_s=120,
+                      self.quit, 'fake', dict(strength=strength, maximum=maximum, polarity=1, session_s=120,
                       require_game=require_game), None, str(self.path))
 
     def frame(self, generation=1, epoch=0):
@@ -99,6 +99,19 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(result['summary']['latched'])
         self.assertEqual(result['summary']['uploads'], 0)
         self.assertEqual(result['summary']['strength'], 15)
+
+    def test_f7_f8_reach_zero_and_full_scale_without_overshooting(self):
+        self.keys.read.side_effect = [[66, 66, 65, 68]] + [[]]*500
+        self.run_worker(strength=100, maximum=100)
+        self.assertEqual(replay_physical(self.path)['summary']['strength'], 95)
+        self.assertIn('[FFB] Limite=100%', self.stdout.getvalue())
+
+    def test_f7_clamps_at_zero_even_with_zero_maximum(self):
+        self.keys.read.side_effect = [[65, 66, 68]] + [[]]*500
+        self.run_worker(strength=0, maximum=0)
+        result = replay_physical(self.path)
+        self.assertEqual(result['summary']['strength'], 0)
+        self.assertEqual(result['summary']['uploads'], 0)
 
     def test_stop_epoch_rejects_inflight_frame_from_before_reset(self):
         self.epoch.value = 2
@@ -191,6 +204,14 @@ class ClientTests(unittest.TestCase):
         self.client.command('strength', dict(percent=5))
         self.assertEqual(self.client.emergency_epoch.value, 1)
         self.assertEqual(self.client.stop_epoch.value, 1)
+
+    def test_client_validates_strength_before_writing_ipc(self):
+        for percent in (-1, 101, True, 1.5):
+            with self.subTest(percent=percent), self.assertRaises(ValueError):
+                self.client.command('strength', dict(percent=percent))
+        self.assertIsNone(self.client.commands.value)
+        self.client.command('strength', dict(percent=100))
+        self.assertEqual(self.client.commands.value['data']['percent'], 100)
 
     def test_zero_calculation_barrier_is_not_lost_when_next_force_overwrites_latest(self):
         self.result['components']['constant'] = 1000

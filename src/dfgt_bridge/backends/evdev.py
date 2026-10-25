@@ -93,8 +93,10 @@ class EvdevBackend:
             self.max_io_ns = max(self.max_io_ns, self.last_io_ns)
 
     def upload_effect(self, request):
-        if (request.effect_id not in (-1, self.slot) or not 1 <= request.duration_ms <= 160
-                or request.direction != 0x4000 or not -32767 <= request.level <= 32767):
+        if (type(request.effect_id) is not int or request.effect_id not in (-1, self.slot)
+                or type(request.duration_ms) is not int or not 1 <= request.duration_ms <= 160
+                or request.direction != 0x4000 or type(request.level) is not int
+                or not -32768 <= request.level <= 32767):
             raise ValueError('Pedido físico fora do contrato Constant/160ms')
         self.freshness_guard()
         signature = request.level, request.duration_ms, request.direction

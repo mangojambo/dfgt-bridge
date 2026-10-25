@@ -15,6 +15,7 @@ from contextlib import ExitStack
 
 from .capture import CaptureWriter, canonical, implementation_hash
 from .supervised import SupervisedPolicy
+from .ffb.safety import validate_percent
 
 MAX_PACKET = 4096
 
@@ -115,7 +116,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                     print('[FFB] F9: DESLIGADO; reativação exige ffb-arm no terminal.', flush=True)
                 elif key in (65, 66):
                     amount = policy.output.strength_percent + (5 if key == 66 else -5)
-                    apply('strength', dict(percent=amount))
+                    apply('strength', dict(percent=max(0, min(policy.output.max_strength_percent, amount))))
                     print(f'[FFB] Limite={policy.output.strength_percent}%, desligado={policy.latched}', flush=True)
                 elif key == 68:
                     print('[FFB F10] ' + canonical(dict(policy.snapshot(),
@@ -280,6 +281,8 @@ class PhysicalClient:
         self.service()
 
     def command(self, action, data):
+        if action == 'strength':
+            validate_percent(data['percent'])
         self.nonce += 1
         if action == 'stop':
             self.stop_epoch.value += 1

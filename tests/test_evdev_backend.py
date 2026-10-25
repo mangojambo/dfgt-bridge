@@ -141,3 +141,20 @@ class EvdevBackendTests(unittest.TestCase):
                         ConstantForce(32768, -1, 160), ConstantForce(1, -1, 160, 0)):
             with self.assertRaises(ValueError):
                 dev.upload_effect(request)
+
+    def test_full_scale_signed_levels_and_unity_gain_reach_native_abi(self):
+        dev = self.backend()
+        for value in (0, 3277, 9830, 16384, 24575, 32767, -32768):
+            dev.upload_effect(ConstantForce(value, -1 if dev.slot < 0 else dev.slot, 160))
+            dev.write(0x15, dev.slot, 1)
+            self.assertEqual(self.uploads[-1].u.constant.level, value)
+            self.assertEqual(self.uploads[-1].direction, 0x4000)
+        self.assertIn((0x15, 0x60, 65535), self.events())
+        self.assertNotIn((0x15, 0x60, 32767), self.events())
+
+    def test_backend_rejects_non_integral_or_overflowed_levels_before_upload(self):
+        dev = self.backend()
+        for value in (-32769, 32768, 1.5, True, float('nan')):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                dev.upload_effect(ConstantForce(value, -1, 160))
+        self.assertEqual(self.uploads, [])

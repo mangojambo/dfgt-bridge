@@ -14,6 +14,12 @@ EV_FF = 0x15
 FF_CONSTANT = 0x52
 
 
+def validate_percent(value):
+    if type(value) is not int or not 0 <= value <= 100:
+        raise ValueError('Intensidade deve ser um inteiro de 0 a 100%')
+    return value
+
+
 @dataclass(frozen=True)
 class ConstantForce:
     level: int
@@ -36,9 +42,11 @@ class ConstantOutput:
             raise RuntimeError('FFB rejeitado: fonte física não é DFGT 046d:c29a')
         if FF_CONSTANT not in dev.capabilities().get(EV_FF, []):
             raise RuntimeError('FFB rejeitado: DFGT físico não suporta FF_CONSTANT')
+        validate_percent(strength_percent)
+        validate_percent(max_strength_percent)
         if not (0 <= strength_percent <= max_strength_percent and
-                5 <= max_strength_percent <= 70 and 15 <= rate_hz <= 45):
-            raise ValueError('Limites: intensidade inicial 0..máximo, teto 5..70%, taxa 15..45Hz')
+                0 <= max_strength_percent <= 100 and 15 <= rate_hz <= 45):
+            raise ValueError('Limites: intensidade inicial 0..máximo, teto 0..100%, taxa 15..45Hz')
         if test_limit_s is None and not isinstance(dev, MockBackend):
             raise ValueError('Sessão sem limite global exige MockBackend')
         if test_limit_s is not None and not (30 <= test_limit_s <= 240):
@@ -50,8 +58,8 @@ class ConstantOutput:
         if not math.isfinite(periodic_boost) or not 0.0 <= periodic_boost <= 3.0:
             raise ValueError('Periodic boost 0..3')
         self.dev = dev
-        if slew_per_s is not None and (not math.isfinite(slew_per_s) or not 0 < slew_per_s <= 32767):
-            raise ValueError('Slew deve estar em 0..32767 unidades/s, exclusivo de zero')
+        if slew_per_s is not None and (not math.isfinite(slew_per_s) or slew_per_s <= 0):
+            raise ValueError('Slew deve ser finito e positivo em unidades/s')
         self.slew_per_s = slew_per_s
         self.clock = clock
         self.boost = boost

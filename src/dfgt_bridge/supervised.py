@@ -8,18 +8,20 @@ from dataclasses import asdict
 import math
 
 from .ffb.effects import OUTPUT_COMPONENTS
-from .ffb.safety import ConstantOutput
+from .ffb.safety import ConstantOutput, validate_percent
 
 
 class SupervisedPolicy:
-    def __init__(self, backend, *, strength=10, maximum=20, polarity=1, session_s=120, require_game=False):
-        if not (type(strength) is int and 0 <= strength <= 10 and
-                type(maximum) is int and 10 <= maximum <= 30 and polarity in (-1, 1)):
-            raise ValueError('Inicial 0..10%, máximo 10..30%, polaridade ±1')
+    def __init__(self, backend, *, strength=10, maximum=20, polarity=1, session_s=120,
+                 require_game=False, slew_per_s=16383.5):
+        validate_percent(strength)
+        validate_percent(maximum)
+        if strength > maximum or type(polarity) is not int or polarity not in (-1, 1):
+            raise ValueError('Intensidade inicial 0..máximo, teto 0..100%, polaridade ±1')
         self.now_ns = 0
         self.output = ConstantOutput(backend, strength, clock=lambda: self.now_ns/1e9,
                                      max_strength_percent=maximum, test_limit_s=session_s,
-                                     slew_per_s=16383.5)
+                                     slew_per_s=slew_per_s)
         self.polarity = polarity
         self.last_generation = 0
         self.last_valid_ns = None
@@ -114,7 +116,7 @@ class SupervisedPolicy:
                 self.minimum_epoch = max(self.minimum_epoch, data.get('epoch', 0))
                 self.stop(data['reason'], latch=data.get('latch', False), fatal=data.get('fatal', False))
             elif action == 'strength':
-                self.output.set_strength(data['percent'])
+                self.output.set_strength(validate_percent(data['percent']))
                 if self.output.strength_percent == 0:
                     self.reason = 'strength_zero'
             elif action == 'arm':

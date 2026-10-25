@@ -50,7 +50,7 @@ class SupervisedPolicyTests(unittest.TestCase):
         before = self.backend.level
         after = self.frame()['evdev_level']
         self.assertLessEqual(after-before, 410)
-        self.command('strength', dict(percent=200))
+        self.command('strength', dict(percent=100))
         self.reach()
         self.reach()
         self.assertEqual(self.policy.output.strength_percent, 20)

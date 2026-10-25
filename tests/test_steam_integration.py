@@ -78,3 +78,33 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn('sudo',text);self.assertNotIn('chmod 666',text)
         self.assertNotIn('steamos-readonly',text)
         self.assertIn('/var/lib/dfgt-bridge/runtime',text)
+
+    def test_service_runtime_never_chowns_control_socket_tree(self):
+        config = units(1000, 1000)
+        service = config['dfgt-bridge.service']
+        socket_unit = config['dfgt-bridge.socket']
+        self.assertIn('RuntimeDirectory=dfgt-bridge-backend\n', service)
+        self.assertIn('RuntimeDirectoryMode=0700', service)
+        self.assertIn('ListenSequentialPacket=/run/dfgt-bridge/control.sock', socket_unit)
+        self.assertIn('SocketUser=1000', socket_unit)
+        self.assertIn('SocketMode=0600', socket_unit)
+        runtime = next(line.split('=', 1)[1] for line in service.splitlines() if line.startswith('RuntimeDirectory='))
+        self.assertFalse('/run/dfgt-bridge/control.sock'.startswith('/run/'+runtime+'/'))
+        self.assertIn('ProtectSystem=strict', service)
+        self.assertIn('ProtectHome=yes', service)
+
+    def test_reinstall_private_0600_profile_and_both_lock_generations(self):
+        self.inst.install()
+        self.assertEqual(self.inst.profiles.stat().st_mode & 0o777, 0o600)
+        for name in ('dfgt-bridge', 'dfgt-bridge-backend'):
+            lock = self.inst.path('/run/'+name+'/device.lock')
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            from dfgt_bridge.steam_service import DeviceLock
+            guard = DeviceLock(lock)
+            try:
+                with self.assertRaisesRegex(RuntimeError, 'reservado'):
+                    self.inst.install()
+            finally:
+                guard.close()
+        self.inst.install()
+        self.assertEqual(ProfileStore(self.inst.profiles).load(), default_profile())

@@ -279,7 +279,9 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
         runtime['ready'] = False
         if binding is not None:
             runtime['binding'] = [binding.last]
-        failure = type(exc).__name__ + ': ' + str(exc)
+        from .startup_errors import io_error
+        failure = (io_error(exc, 'runner.io') if isinstance(exc, OSError) else
+                   type(exc).__name__ + ': ' + str(exc))
         if status_callback:
             status_callback(dict(state='failed', error=failure[:1000], binding=runtime['binding']))
         # ExitStack já removeu UHID/entrada; não tentar entregar mais pacotes.

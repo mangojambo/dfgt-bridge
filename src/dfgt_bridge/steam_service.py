@@ -16,6 +16,7 @@ import uuid
 
 from .steam_protocol import encode, receive, peer, approved, ready, ProcInfo
 from .input.physical_wheel import SOURCE
+from .startup_errors import operation, io_error
 
 
 class DeviceLock:
@@ -33,11 +34,19 @@ class DeviceLock:
 class RootRunner:
     def __init__(self, profile, *, physical, detailed, identity, runtime, log_dir, run_dir):
         self.directory = Path(run_dir)/('session-'+uuid.uuid4().hex)
-        self.directory.mkdir(mode=0o700)
+        with operation("service.session.mkdir", self.directory):
+            self.directory.mkdir(mode=0o700)
         config = self.directory/'profiles.json'
-        config.write_text(json.dumps(dict(version=1, profiles=dict(dirt5=profile))))
-        config.chmod(0o600)
-        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        try:
+            with operation("service.profile.write", config):
+                config.write_text(json.dumps(dict(version=1, profiles=dict(dirt5=approved(profile)))))
+                config.chmod(0o600)
+            with operation("service.runner.socketpair"):
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        except BaseException:
+            config.unlink(missing_ok=True)
+            self.directory.rmdir()
+            raise
         self.channel = parent
         self.channel.setblocking(False)
         self.state = dict(state='starting')
@@ -53,14 +62,17 @@ class RootRunner:
             command.append('--enable-ffb')
         self.capture = None
         self.process = None
-        if detailed:
-            folder = Path(log_dir)/'captures';folder.mkdir(mode=0o750, exist_ok=True)
-            self.capture = str(folder/(self.directory.name+'.jsonl.gz'))
-            command.extend(['--capture', self.capture])
         try:
-            self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, pass_fds=(child.fileno(),), start_new_session=True,
-                cwd=runtime, env={'PATH': '/usr/bin:/usr/sbin:/bin:/sbin', 'HOME': '/root', 'LANG': 'C.UTF-8'}, bufsize=0)
+            if detailed:
+                folder = Path(log_dir)/'captures'
+                with operation('service.capture.mkdir', folder):
+                    folder.mkdir(mode=0o750, exist_ok=True)
+                self.capture = str(folder/(self.directory.name+'.jsonl.gz'))
+                command.extend(['--capture', self.capture])
+            with operation("service.runner.spawn", Path(runtime)/"src/dfgt_bridge/main.py"):
+                self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, pass_fds=(child.fileno(),), start_new_session=True,
+                    cwd=runtime, env={'PATH': '/usr/bin:/usr/sbin:/bin:/sbin', 'HOME': '/root', 'LANG': 'C.UTF-8'}, bufsize=0)
             os.set_blocking(self.process.stdin.fileno(), False)
             os.set_blocking(self.process.stdout.fileno(), False)
         except BaseException:
@@ -169,7 +181,8 @@ class SessionManager:
             if not identity or identity['uid'] != self.uid:
                 raise PermissionError('Identidade do launcher inválida')
             identity = dict(identity)
-            lock = self.lock_factory() if self.lock_factory else None
+            with operation("service.device_lock", "/run/dfgt-bridge-backend/device.lock"):
+                lock = self.lock_factory() if self.lock_factory else None
             try:
                 self.runner = self.factory(settings, physical=message['mode'] == 'normal',
                     detailed=message['detailed'], identity=identity)
@@ -268,7 +281,9 @@ def serve(listener, manager, *, stopping=None, clock=time.monotonic, watchdog=No
                     except EOFError:
                         drop(channel);continue
                     except (ValueError, KeyError, TypeError, PermissionError, RuntimeError, OSError, RecursionError) as exc:
-                        reply = dict(ok=False, error=str(exc)[:1000])
+                        detail = io_error(exc, "service.request") if isinstance(exc, OSError) and exc.filename else str(exc)
+                        logging.error("Falha de controle: %s", detail[:1000])
+                        reply = dict(ok=False, error=detail[:1000])
                     try:
                         channel.send(encode(reply))
                     except (OSError, ValueError):
@@ -297,7 +312,7 @@ def main():
         if path.is_symlink() or entry.st_uid != 0 or entry.st_mode & 0o022:
             raise PermissionError('Código privilegiado não é root-owned/read-only: '+str(path))
     # Só restos privados do próprio serviço, depois do KillMode=control-group.
-    for folder in Path('/run/dfgt-bridge').glob('session-*'):
+    for folder in Path('/run/dfgt-bridge-backend').glob('session-*'):
         if (folder.is_dir() and not folder.is_symlink() and folder.stat().st_uid == 0 and
                 len(folder.name) == 40 and set(folder.name[8:]) <= set('0123456789abcdef') and
                 {p.name for p in folder.iterdir()} <= {'profiles.json'}):
@@ -310,9 +325,9 @@ def main():
     handler = RotatingFileHandler(folder/'service.log', maxBytes=262144, backupCount=2)
     logging.basicConfig(level=logging.INFO, handlers=[handler], format='%(asctime)s %(levelname)s %(message)s')
     factory = lambda profile, **args: RootRunner(profile, **args, runtime=policy['runtime'],
-                        log_dir=folder, run_dir='/run/dfgt-bridge')
+                        log_dir=folder, run_dir='/run/dfgt-bridge-backend')
     manager = SessionManager(policy['uid'], factory,
-        lock_factory=lambda: DeviceLock('/run/dfgt-bridge/device.lock'))
+        lock_factory=lambda: DeviceLock('/run/dfgt-bridge-backend/device.lock'))
     stop = {'value': False}
     for number in (signal.SIGTERM, signal.SIGINT):
         signal.signal(number, lambda *_: stop.update(value=True))

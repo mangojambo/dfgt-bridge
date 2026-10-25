@@ -51,6 +51,13 @@ class LauncherTests(unittest.TestCase):
         self.assertGreaterEqual(self.now,.25)
         self.assertEqual(self.client.request.call_args_list[0].args,('start',))
 
+    def test_connect_denial_reports_socket_before_game_start(self):
+        factory = Mock(side_effect=PermissionError(13, 'denied'))
+        with self.assertRaisesRegex(OSError, 'launcher.control.connect.*control.sock.*errno=13'):
+            run_game([], settings=default_profile(), passive=True, client_factory=factory,
+                     proc=self.proc, clock=lambda:self.now, sleep=self.sleep)
+        self.spawn.assert_not_called()
+
     def test_pidff_failure_does_not_launch_game(self):
         self.client.request.return_value=dict(state='failed',error='PIDFF -22')
         with self.assertRaisesRegex(RuntimeError,'-22'):self.execute()

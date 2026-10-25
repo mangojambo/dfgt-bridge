@@ -89,6 +89,20 @@ class PhysicalInputTests(unittest.TestCase):
         with patch('os.read', side_effect=BlockingIOError):
             self.assertEqual(self.wheel.read_frames(), [])
 
+    def test_usb_reconnect_reopens_stable_by_id_with_new_fd(self):
+        from dfgt_bridge.input.physical_wheel import SOURCE
+        with patch('os.read', return_value=b''):
+            with self.assertRaisesRegex(EOFError, 'desconectado'):
+                self.wheel.read_frames()
+        self.wheel.close()
+        self.open.return_value = 85
+        with PhysicalWheel() as replacement:
+            self.assertEqual(replacement.fd, 85)
+            self.assertEqual(self.open.call_args.args[0], SOURCE)
+            self.assertIn('/by-id/', SOURCE)
+            self.assertEqual(replacement.pressed, set())
+        self.close.assert_called_with(85)
+
     def test_bad_identity_or_range_closes_fd(self):
         with patch('fcntl.ioctl', return_value=bytes(8)), self.assertRaises(ValueError):
             PhysicalWheel()

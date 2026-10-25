@@ -206,3 +206,30 @@ class RootRunnerTests(unittest.TestCase):
         self.assertEqual(value.state['state'],'failed')
         self.assertIn('progresso',value.state['error'])
         self.process.poll.return_value=0;value.close()
+
+    def test_private_profile_is_read_from_run_even_when_home_is_denied(self):
+        original = Path.open
+        def restricted(path, *args, **kwargs):
+            if str(path).startswith(('/home/', '/root/')):
+                raise PermissionError(13, 'denied', str(path))
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'open', restricted):
+            value = self.make(physical=False)
+            config = value.directory/'profiles.json'
+            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(ProfileStore(config).load(), default_profile())
+            self.assertIn(str(config), self.popen.call_args.args[0])
+            self.process.poll.return_value = 0
+            value.close()
+
+    def test_spawn_permission_error_identifies_fixed_executable_and_cleans_session(self):
+        self.popen.side_effect = PermissionError(13, 'denied')
+        with self.assertRaisesRegex(OSError, 'service.runner.spawn.*main.py.*errno=13'):
+            self.make(physical=False)
+        self.assertEqual(list(Path(self.directory).glob('session-*')), [])
+
+    def test_socketpair_denial_cleans_private_profile(self):
+        with patch('socket.socketpair', side_effect=PermissionError(13, 'denied')):
+            with self.assertRaisesRegex(OSError, 'service.runner.socketpair.*errno=13'):
+                self.make(physical=False)
+        self.assertEqual(list(Path(self.directory).glob('session-*')), [])

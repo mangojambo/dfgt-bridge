@@ -13,6 +13,8 @@ import sys
 import time
 
 from .config import ProfileStore, default_path
+from .startup_errors import operation
+from .steam_protocol import approved
 from .steam_protocol import ControlClient, ProcInfo, APPID, ready
 
 
@@ -91,7 +93,8 @@ def run_game(command, *, settings, client_factory=ControlClient, spawn=subproces
         raise RuntimeError('Não foi possível identificar o launcher em /proc')
     try:
         if automatic:
-            client = client_factory()
+            with operation("launcher.control.connect", "/run/dfgt-bridge/control.sock"):
+                client = client_factory()
             response = client.request('start', profile='dirt5', mode='passive' if passive else 'normal',
                                       settings=settings, detailed=detailed)
             acquired = True
@@ -120,7 +123,8 @@ def run_game(command, *, settings, client_factory=ControlClient, spawn=subproces
             print('[PRONTO] teste passivo, sem motor: '+json.dumps(response.get('binding'), sort_keys=True))
             return 0
         env = dict(os.environ, PROTON_ENABLE_HIDRAW='0x046d/0xc24f')
-        process = spawn(list(command), env=env, start_new_session=True)
+        with operation("launcher.game.spawn"):
+            process = spawn(list(command), env=env, start_new_session=True)
         tree = GameTree(process.pid, os.getuid(), identity['ticks'], proc=proc)
         launched = last_ping = clock()
         game_ended = idle_since = None
@@ -212,8 +216,14 @@ def main(argv=None):
         if not command and not args.check_ready: parser.error('Falta %command% após --')
         if args.check_ready and command: parser.error('--check-ready não aceita comando de jogo')
         preferences = IntegrationSettings(Path(args.profiles_file).with_name('integration.json') if args.profiles_file else None)
-        enabled = args.check_ready or preferences.enabled()
-        return run_game(command, settings=ProfileStore(args.profiles_file).load('dirt5'),
+        with operation('launcher.integration.read', preferences.path):
+            enabled = args.check_ready or preferences.enabled()
+        store = ProfileStore(args.profiles_file)
+        with operation('launcher.profile.read', store.path):
+            settings = store.load('dirt5')
+        if enabled:
+            settings = approved(settings)
+        return run_game(command, settings=settings,
                         passive=args.check_ready, detailed=args.capture, cancelled=lambda: cancel['value'], automatic=enabled,
                         startup_timeout=args.game_start_timeout)
     except (OSError, EOFError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:

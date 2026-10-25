@@ -53,8 +53,8 @@ Group={gid}
 WorkingDirectory={RUNTIME}
 Environment=PATH=/usr/bin:/usr/sbin:/bin:/sbin
 UMask=0027
-RuntimeDirectory=dfgt-bridge
-RuntimeDirectoryMode=0755
+RuntimeDirectory=dfgt-bridge-backend
+RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 LogsDirectory=dfgt-bridge
 LogsDirectoryMode=0750
@@ -168,10 +168,21 @@ class Installer:
                     raise ValueError('Destino privilegiado não é protegido: '+str(cursor))
 
     def _not_busy(self):
-        lock = self.path('/run/dfgt-bridge/device.lock')
-        self._trusted(lock)
-        if lock.exists():
-            return DeviceLock(lock)
+        # Conferir também o lock legado durante a migração da instalação.
+        guards = []
+        try:
+            for base in ('dfgt-bridge', 'dfgt-bridge-backend'):
+                lock = self.path('/run/'+base+'/device.lock')
+                self._trusted(lock)
+                if lock.exists():
+                    guards.append(DeviceLock(lock))
+        except BaseException:
+            for guard in guards: guard.close()
+            raise
+        class Guards:
+            def close(self):
+                for guard in guards: guard.close()
+        return Guards()
 
     def _snapshot(self, package, files, state):
         stage = state/('.runtime-'+uuid.uuid4().hex)

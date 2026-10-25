@@ -26,6 +26,33 @@ class NativeTkStartupTests(unittest.TestCase):
                 self.assertTrue(page.winfo_exists())
             self.assertEqual(app.profile_name.get(), 'dirt5')
 
+            for geometry in ('1280x800', '1600x900'):
+                root.geometry(geometry)
+                app.tabs.select(app.mapping)
+                root.update_idletasks()
+                self.assertGreater(app.dfgt_canvas.winfo_width(), 200)
+                self.assertGreater(app.g29_canvas.winfo_height(), 200)
+                for art in (app.dfgt_art, app.g29_art):
+                    for item in art.canvas.find_all():
+                        bounds = art.canvas.bbox(item)
+                        if bounds:
+                            self.assertGreaterEqual(bounds[0], 0)
+                            self.assertGreaterEqual(bounds[1], 0)
+                            self.assertLessEqual(bounds[2], art.canvas.winfo_width())
+                            self.assertLessEqual(bounds[3], art.canvas.winfo_height())
+                self.assertGreaterEqual(app.mapping_inspector.winfo_width(), 340)
+                app.tabs.select(app.settings)
+                root.update_idletasks()
+                self.assertFalse(app.settings_advanced.winfo_ismapped())
+                self.assertFalse(app.input_details.winfo_ismapped())
+                app.toggle_advanced()
+                app.toggle_input_details()
+                root.update_idletasks()
+                self.assertTrue(app.settings_advanced.winfo_ismapped())
+                self.assertTrue(app.input_details.winfo_ismapped())
+                app.toggle_advanced()
+                app.toggle_input_details()
+
             app.language.set('Português (Brasil)')
             app.change_language()
             self.assertEqual(app.locale, 'pt-BR')

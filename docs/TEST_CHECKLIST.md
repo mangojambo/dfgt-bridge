@@ -2,8 +2,8 @@
 
 ## Offline checks completed for this preparation
 
-- [x] Full suite: `python3 -B -m unittest discover -s tests -v` (479 tests, all passed).
-- [x] Additional no-device guard: `python3 -B -W error::ResourceWarning scripts/test-offline.py` (479 tests, all passed).
+- [x] Full suite: `python3 -B -m unittest discover -s tests -v` (483 cases: 482 passed, 1 native Tk smoke test skipped because no display was available).
+- [x] Additional no-device guard: `python3 -B -W error::ResourceWarning scripts/test-offline.py` (483 cases: 482 passed, 1 native Tk smoke test skipped because no display was available).
 - [x] Shell syntax and installer dry-run pass during this preparation; installer tests use temporary roots and mocked systemctl.
 - [x] Historical blob scan covered 61 reachable commits for private-key markers, common credential assignments, capture/log files; no matches were found.
 - [x] Current Git index contains no captures or log files.

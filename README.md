@@ -21,7 +21,7 @@ DFGT Bridge is an independent community project. It is not affiliated with, endo
 |---|---|
 | DiRT 5 recognition, controls, Steam launcher, SteamOS service | Confirmed by the owner on the target SteamOS setup |
 | Full-scale physical FFB profile (100%, polarity -1) | Owner approved and tested |
-| Offline tests | 479 tests pass in the latest offline run; simulated devices only |
+| Offline tests | 483 cases: 482 pass; native Tk smoke test skipped without a display |
 | Installer, socket protocol, GUI widgets, PID lifecycle | Automated tests with fakes; no clean-install VM or fresh SteamOS image was available here |
 | Non-DiRT 5 games, other wheels, other architectures | Not validated |
 | Fidelity of every PID effect across complete race scenarios | Not established; see [limitations](docs/LIMITATIONS.md) |

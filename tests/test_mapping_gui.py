@@ -44,8 +44,11 @@ class Widget:
             return create
         if name in ('pack', 'grid', 'rowconfigure', 'columnconfigure', 'title', 'geometry',
                     'minsize', 'protocol', 'add', 'select', 'tab', 'addtag_withtag', 'see',
-                    'clipboard_clear', 'clipboard_append', 'yview', 'set'):
+                    'clipboard_clear', 'clipboard_append', 'yview', 'xview', 'yview_scroll',
+                    'grid_forget', 'grid_remove', 'set'):
             return lambda *a, **k: None
+        if name == 'bbox':
+            return lambda *a, **k: (0, 0, 500, 500)
         if name in ('winfo_width', 'winfo_height'):
             return lambda: 430
         raise AttributeError(name)
@@ -221,13 +224,21 @@ class GUITests(unittest.TestCase):
 
     def test_language_switch_is_live_persistent_and_does_not_change_profile(self):
         before = self.app._candidate()
+        self.app.toggle_advanced()
+        self.app.toggle_input_details()
+        self.app.toggle_mapping_technical()
         self.app.language.set('Português (Brasil)')
         self.app.change_language()
         self.assertEqual(self.app.locale, 'pt-BR')
         self.assertEqual(self.app.t('app.title'), 'DFGT Bridge · Perfis, FFB e mapeamento G29')
         self.assertEqual(self.app._candidate(), before)
-        self.assertTrue(all(widget.options.get('text') == self.app.t(key) for widget, key in self.app._text_widgets))
+        dynamic = (self.app.advanced_button, self.app.input_details_button, self.app.mapping_technical_button)
+        self.assertTrue(all(widget.options.get('text') == self.app.t(key)
+                            for widget, key in self.app._text_widgets if widget not in dynamic))
         self.assertEqual(self.app.locale_store.load(), 'pt-BR')
+        self.assertEqual(self.app.advanced_button.options['text'], self.app.t('settings.advanced_hide'))
+        self.assertEqual(self.app.input_details_button.options['text'], self.app.t('settings.input_details_hide'))
+        self.assertEqual(self.app.mapping_technical_button.options['text'], self.app.t('mapping.technical_hide'))
         self.assertFalse(self.store.path.exists())
         self.app.language.set('English')
         self.app.change_language()
@@ -240,9 +251,33 @@ class GUITests(unittest.TestCase):
         self.app.change_language()
         physical = [item['text'] for item in self.app.dfgt_art.canvas.items.values() if 'text' in item]
         virtual = [item['text'] for item in self.app.g29_art.canvas.items.values() if 'text' in item]
-        self.assertIn('Direção X', physical)
-        self.assertIn('Acelerador Y', virtual)
-        self.assertIn('Saídas adicionais do câmbio (botões 13–19)', virtual)
+        self.assertIn('P−', physical)
+        self.assertIn('H↑', physical)
+        self.assertIn('X', virtual)
+        self.assertNotIn('293', physical)
+        self.assertNotIn('Direção X', physical)
+        self.assertEqual(self.app.dfgt_card.options['text'], self.app.t('mapping.physical_wheel'))
+
+    def test_mapping_reflows_and_keeps_full_source_accessible_in_inspector(self):
+        self.app._layout_mapping(SimpleNamespace(width=1280))
+        self.assertTrue(self.app.mapping_wide)
+        self.app._layout_mapping(SimpleNamespace(width=980))
+        self.assertFalse(self.app.mapping_wide)
+        self.assertGreaterEqual(self.app.sources.options['width'], 40)
+        self.assertIn('xscrollcommand', self.app.sources.options)
+        self.assertGreaterEqual(self.app.target_box.options['width'], 30)
+
+    def test_settings_groups_keep_advanced_values_collapsed_and_preserved(self):
+        before = self.app._candidate()
+        self.assertFalse(self.app.advanced_open)
+        self.assertFalse(self.app.input_details_open)
+        self.app.toggle_advanced()
+        self.app.toggle_input_details()
+        self.assertTrue(self.app.advanced_open)
+        self.assertTrue(self.app.input_details_open)
+        self.assertEqual(self.app._candidate(), before)
+        self.app.toggle_advanced()
+        self.app.toggle_input_details()
 
     def test_save_button_tracks_persistable_changes_only(self):
         self.assertEqual(self.app.save_button.options['state'], 'disabled')

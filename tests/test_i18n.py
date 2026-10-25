@@ -30,8 +30,8 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(localized_error('custom technical detail', 'pt-BR'), 'custom technical detail')
 
     def test_parameter_interpolation_is_localized_and_safe_on_missing_values(self):
-        self.assertEqual(translate('home.profile_summary', 'pt-BR', profile='DiRT 5'), 'Perfil ativo: DiRT 5')
-        self.assertEqual(translate('home.profile_summary', 'pt-BR'), 'Perfil ativo: {profile}')
+        self.assertEqual(translate('home.profile_summary', 'pt-BR', profile='DiRT 5'), 'DiRT 5')
+        self.assertEqual(translate('home.profile_summary', 'pt-BR'), '{profile}')
 
     def test_button_names_are_stable_and_wheel_art_labels_are_catalogued(self):
         for key in (*[f'target.button.{i}' for i in range(1, 26)],

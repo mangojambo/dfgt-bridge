@@ -1,6 +1,6 @@
 # Desktop GUI
 
-The application is implemented with Python's standard Tkinter and ttk widgets. It has four sections: Home, Mapping, Settings, and Diagnostics. The profile selector and Save changes action stay in the top bar; Undo and Redo are available there as well.
+The application is implemented with Python's standard Tkinter and ttk widgets. It has four sections: Home, Mapping, Settings, and Diagnostics. The profile selector and Save changes action stay in the top bar; Undo and Redo are available there as well. Home groups the active profile and force-feedback summary beside the actual service state and keeps navigation actions together. The Settings page separates Force Feedback, Input & Axes, and Manual Controls; input details and advanced force-feedback fields are collapsed initially. Passive, physical-output, and STOP actions use distinct styles.
 
 ## Languages
 
@@ -12,7 +12,7 @@ All application-owned interface text uses stable catalog keys in `src/dfgt_bridg
 
 The profile manager supports loading, creating, duplicating, renaming, and deleting profiles. Saving is disabled until an editable, persistable value changes. Language changes do not mark a profile dirty.
 
-Mapping supports the complete existing button set, axis selection, presets, read-only DFGT monitoring, input detection, conflict resolution, dial direction swap, and Undo/Redo. Wheel diagrams are accompanied by keyboard-accessible controls and an input list. Profile edits do not change an active runner.
+Mapping supports the complete existing button set, axis selection, presets, read-only DFGT monitoring, input detection, conflict resolution, dial direction swap, and Undo/Redo. Wheel diagrams scale proportionally and reflow around a wider mapping inspector. Compact wheel markers keep full source labels and EVDEV codes in the inspector, which has a horizontal scrollbar for long entries. Technical axis and HID report detail is collapsed initially. The page scrolls when its content exceeds the available height. Profile edits do not change an active runner.
 
 ## Force feedback and safety
 

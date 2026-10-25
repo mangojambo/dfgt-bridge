@@ -6,7 +6,7 @@ The project owner confirmed SteamOS startup through Steam, DiRT 5 recognition an
 
 ## Verified offline
 
-The 479-test suite covers protocol decoding, mapping, profile validation, lifecycle, safety policy, installer behavior, service IPC, and replay using fake devices and deterministic clocks. It does not open hardware or test motor response. Captures in `tests/fixtures/` are preserved as small regression data; some synthetic vectors are identified as synthetic in their test and documentation contexts.
+The 483-case suite covers protocol decoding, mapping, profile validation, lifecycle, safety policy, installer behavior, service IPC, replay, and mock-based GUI layout checks using fake devices and deterministic clocks. The native Tk integration smoke test was skipped because this environment has no accessible display. The suite does not open hardware or test motor response. Captures in `tests/fixtures/` are preserved as small regression data; some synthetic vectors are identified as synthetic in their test and documentation contexts.
 
 ## Not established
 

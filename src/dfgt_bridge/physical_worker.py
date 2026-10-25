@@ -20,6 +20,13 @@ from .ffb.safety import validate_percent
 MAX_PACKET = 4096
 
 
+def backend_diagnostic(backend):
+    method = getattr(backend, 'diagnostic', None)
+    if method is not None:
+        return method()
+    return {k: getattr(backend, k, 0) for k in ('io_calls', 'last_io_ns', 'max_io_ns')}
+
+
 class Mailbox:
     def __init__(self, ctx):
         self.sequence = ctx.RawValue('Q', 0)
@@ -60,6 +67,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
     try:
         if trace_path:
             writer = CaptureWriter(trace_path, dict(kind='physical_policy', config=config,
+                                   diagnostics_version=2,
                                    implementation_sha256=implementation_hash(), physical_id=[0x046d, 0xc29a]))
         backend = EvdevBackend(path, enable_ffb=True)
         policy = SupervisedPolicy(backend, **config)
@@ -73,7 +81,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             print('[FFB] Teclas globais F7/F8: -/+5%; F9: desligar (não alterna); '
                   'F10: diagnóstico. Reativar somente por ffb-arm no terminal.', flush=True)
         print(f'[FFB] Supervisor PID={os.getpid()}; teto inicial={config["strength"]}%, '
-              f'máximo={config["maximum"]}%.', flush=True)
+              f'máximo={config["maximum"]}%; slew={policy.output.slew_per_s} unidades/s.', flush=True)
 
         def apply(action, data, now=None):
             stamp = time.monotonic_ns() if now is None else now
@@ -81,7 +89,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             if writer:
                 writer.append(dict(kind='physical_step', action=action, data=data,
                                    timestamp_ns=stamp, result=value,
-                                   io={k: getattr(backend, k, 0) for k in ('io_calls', 'last_io_ns', 'max_io_ns')}))
+                                   io=backend_diagnostic(backend)))
             return value
 
         def guard():
@@ -120,7 +128,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                     print(f'[FFB] Limite={policy.output.strength_percent}%, desligado={policy.latched}', flush=True)
                 elif key == 68:
                     print('[FFB F10] ' + canonical(dict(policy.snapshot(),
-                          io={k: getattr(backend, k, 0) for k in ('io_calls', 'last_io_ns', 'max_io_ns')})), flush=True)
+                          io=backend_diagnostic(backend))), flush=True)
             command = commands.read()
             if command and command['nonce'] > last_command:
                 last_command = command['nonce']
@@ -149,7 +157,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             status.write(dict(ready=True, at_ns=time.monotonic_ns(), pid=os.getpid(),
                               keyboards=len(keys.devices), keyboard_errors=getattr(keys, 'errors', [])[-3:],
                               game_identity=last_game,
-                              io={k: getattr(backend, k, 0) for k in ('io_calls', 'last_io_ns', 'max_io_ns')},
+                              io=backend_diagnostic(backend),
                               **policy.snapshot()))
             if writer and time.monotonic_ns()-last_flush >= 1_000_000_000:
                 writer.flush()
@@ -166,7 +174,8 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                                   **({'fatal': error[:512]} if error else {}), **value))
                 if writer:
                     writer.append(dict(kind='physical_step', action='close', data={},
-                                       timestamp_ns=policy.now_ns, result=value))
+                                       timestamp_ns=policy.now_ns, result=value,
+                                       io=backend_diagnostic(backend)))
             if writer:
                 writer.append(dict(kind='footer', complete=error is None,
                                    error=error, result=policy.snapshot() if policy else None))

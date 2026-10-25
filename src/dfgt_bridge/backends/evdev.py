@@ -54,6 +54,8 @@ class EvdevBackend:
         self.uploads = self.deduplicated = 0
         self.io_calls = self.last_io_ns = self.max_io_ns = 0
         self.signature = None
+        self.gain_commanded = None
+        self.level_uploaded = self.level_commanded = 0
         try:
             _, vendor, product, _ = struct.unpack('=4H', fcntl.ioctl(self.fd, 0x80084502, bytes(8)))
             if (vendor, product) != (0x046d, 0xc29a):
@@ -82,6 +84,13 @@ class EvdevBackend:
         data = INPUT_EVENT.pack(0, 0, kind, code, value)
         if self._timed(lambda: os.write(self.fd, data)) != len(data):
             raise OSError('Escrita EVDEV parcial; abortar sem reenviar cauda')
+        if kind == 0x15:
+            if code == 0x60:
+                self.gain_commanded = value
+                if value == 0:
+                    self.level_commanded = 0
+            elif code == self.slot:
+                self.level_commanded = self.level_uploaded if value else 0
 
     def _timed(self, operation):
         started = time.perf_counter_ns()
@@ -113,6 +122,7 @@ class EvdevBackend:
         if not 0 <= allocated < self.capacity or (self.slot >= 0 and allocated != self.slot):
             raise OSError('Kernel não reutilizou o único slot físico')
         self.slot, self.signature = allocated, signature
+        self.level_uploaded = request.level
         self.uploads += 1
         self.freshness_guard()  # Upload lento não autoriza um play vencido.
         return self.slot
@@ -139,6 +149,13 @@ class EvdevBackend:
             raise ValueError('Slot físico não pertence a este backend')
         self._timed(lambda: fcntl.ioctl(self.fd, 0x40044581, effect_id))  # ID, não ponteiro.
         self.slot, self.signature = -1, None
+        self.level_commanded = 0
+
+    def diagnostic(self):
+        return dict(io_calls=self.io_calls, last_io_ns=self.last_io_ns, max_io_ns=self.max_io_ns,
+                    gain_commanded=self.gain_commanded, level_uploaded=self.level_uploaded,
+                    level_commanded=self.level_commanded, uploads=self.uploads,
+                    deduplicated=self.deduplicated)
 
     def close(self):
         if self.fd < 0:

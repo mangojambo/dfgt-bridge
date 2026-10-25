@@ -33,10 +33,19 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
                 if core_header['metadata']['physical_config'] != metadata['config']:
                     raise ValueError('Perfil físico difere da captura principal')
             match = metadata['implementation_sha256'] == implementation_hash()
+            if metadata.get('diagnostics_version', 1) not in (1, 2):
+                raise ValueError('Versão de diagnóstico físico desconhecida')
             if not match and not verify_compatible:
                 raise ValueError('Fontes do trace físico diferentes; use --verify-compatible para conferir resultados')
             backend = MockBackend(clock=lambda: policy.now_ns/1e9)
             policy = SupervisedPolicy(backend, **metadata['config'])
+            def verify_result(expected):
+                actual = policy.snapshot()
+                # Extensão aditiva v2: traces v1 não continham esse diagnóstico.
+                # Todos os campos e decisões originais continuam sendo comparados.
+                if metadata.get('diagnostics_version', 1) == 1 and 'force_pipeline' not in expected:
+                    actual.pop('force_pipeline')
+                return actual == expected
             steps = frames = 0
             footer = None
             for record in iterator:
@@ -44,15 +53,21 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
                     raise ValueError('Dados depois do footer físico')
                 if record['kind'] == 'footer':
                     footer = record
-                    if record['result'] != policy.snapshot():
+                    if not verify_result(record['result']):
                         raise ValueError('Resumo físico divergente')
                     continue
                 if record['kind'] != 'physical_step':
                     raise ValueError('Registro físico desconhecido')
-                result = policy.apply(record['action'], record['data'], record['timestamp_ns'])
-                if 'io' in record and any(type(v) is not int or v < 0 for v in record['io'].values()):
-                    raise ValueError('Telemetria de latência EVDEV inválida')
-                if result != record['result']:
+                policy.apply(record['action'], record['data'], record['timestamp_ns'])
+                for key, value in record.get('io', {}).items():
+                    lower, upper = ((-32768, 32767) if key in ('level_uploaded', 'level_commanded') else
+                                    (0, 65535) if key == 'gain_commanded' else (0, None))
+                    if type(value) is not int or value < lower or (upper is not None and value > upper):
+                        raise ValueError('Telemetria EVDEV inválida')
+                if ('level_commanded' in record.get('io', {}) and
+                        record['io']['level_commanded'] != record['result']['evdev_level']):
+                    raise ValueError('Magnitude EVDEV diverge da política física')
+                if not verify_result(record['result']):
                     raise ValueError(f'Política física divergiu no registro {record["seq"]}')
                 steps += 1
                 if record['action'] == 'frame':

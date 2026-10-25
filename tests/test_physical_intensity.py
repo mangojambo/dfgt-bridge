@@ -91,9 +91,98 @@ class IntensityTests(unittest.TestCase):
             with self.subTest(strength=strength, maximum=maximum), self.assertRaises(ValueError):
                 SupervisedPolicy(dev, strength=strength, maximum=maximum)
             self.assertEqual(dev.actions, [])
-        for rate in (0, -1, float('nan'), float('inf')):
+        for rate in (0, -1, None, True, float('nan'), float('inf')):
             with self.subTest(rate=rate), self.assertRaises(ValueError):
                 self.policy(slew_per_s=rate)
+
+    def test_pipeline_separates_gain_clipping_slew_and_unity_evdev_gain(self):
+        policy, dev = self.policy(50)
+        first = self.frame(policy)['force_pipeline']
+        self.assertAlmostEqual(first['user_gain'], 16384/32767)
+        self.assertAlmostEqual(first['loss_percent']['user_gain'], 50, delta=.002)
+        self.assertEqual(first['loss_percent']['clipping'], 0)
+        self.assertGreater(first['loss_percent']['slew'], 90)
+        self.assertEqual(first['evdev_gain_expected'], 65535)
+        for _ in range(100):
+            result = self.frame(policy, 65534)
+        pipeline = result['force_pipeline']
+        self.assertEqual(result['renderer_total'], 65534)
+        self.assertEqual(pipeline['renderer_signed_reference'], 32767)
+        self.assertEqual(pipeline['after_user_gain'], 32768)
+        self.assertEqual(pipeline['after_clipping'], 16384)
+        self.assertEqual(pipeline['loss_percent']['clipping'], 50)
+        self.assertEqual(pipeline['loss_percent']['slew'], 0)
+        self.assertEqual(pipeline['after_safety_slew'], dev.level)
+
+    def test_full_scale_diagnostics_have_no_hidden_gain_or_clipping_loss(self):
+        policy, dev = self.policy(slew_per_s=327670)
+        for _ in range(6):
+            result = self.frame(policy)
+        pipeline = result['force_pipeline']
+        self.assertEqual(pipeline['user_gain'], 1)
+        self.assertEqual(pipeline['evdev_gain_expected'], 65535)
+        self.assertEqual(pipeline['after_user_gain'], 32767)
+        self.assertEqual(pipeline['after_clipping'], 32767)
+        self.assertEqual(pipeline['after_safety_slew'], 32767)
+        self.assertEqual(pipeline['loss_percent'], dict(user_gain=0, clipping=0, slew=0,
+                                                      rate_gate=0, safety=0, total=0))
+
+    def test_diagnostics_distinguish_rate_gate_and_reverse_direction(self):
+        policy, _ = self.policy(slew_per_s=327670)
+        for _ in range(6):
+            self.frame(policy)
+        value = self.frame(policy, -32767, dt=1)['force_pipeline']
+        self.assertEqual(value['stage'], 'rate_gate')
+        self.assertTrue(value['sign_mismatch'])
+        self.assertEqual(value['tracking_error_percent'], 200)
+        self.assertEqual(value['loss_percent']['slew'], 0)
+        policy.apply('stop', {'reason': 'F9', 'latch': True}, policy.now_ns+1)
+        value = policy.snapshot()['force_pipeline']
+        self.assertEqual(value['evdev_magnitude'], 0)
+        self.assertEqual(value['loss_percent']['safety'], 100)
+        self.assertEqual(value['evdev_gain_expected'], 0)
+
+    def test_diagnostics_report_zero_reference_as_undefined_not_success(self):
+        policy, _ = self.policy()
+        value = self.frame(policy, 0)['force_pipeline']
+        self.assertIsNone(value['loss_percent']['total'])
+        self.assertIsNone(value['tracking_error_percent'])
+
+    def test_recent_upload_rate_expires_without_poll_renewing_output(self):
+        policy, _ = self.policy(slew_per_s=327670)
+        for _ in range(6):
+            self.frame(policy)
+        value = policy.snapshot()['force_pipeline']
+        self.assertGreater(value['uploads_per_second'], 0)
+        self.assertEqual(value['uploads_last_second'], policy.output.writes)
+        uploads, plays = policy.output.writes, policy.output.play_requests
+        policy.apply('poll', {}, policy.now_ns+1_000_000_001)
+        self.assertEqual(policy.snapshot()['force_pipeline']['uploads_last_second'], 0)
+        self.assertEqual((policy.output.writes, policy.output.play_requests), (uploads, plays))
+
+    def test_diagnostic_extreme_ratios_remain_json_finite(self):
+        from dfgt_bridge.capture import canonical
+        policy, _ = self.policy(slew_per_s=327670)
+        for _ in range(6):
+            self.frame(policy)
+        value = self.frame(policy, 1e-310, dt=1)
+        self.assertEqual(value['force_pipeline']['tracking_error_percent'], 100)
+        self.assertEqual(value['evdev_level'], 0)  # Quantização a zero continua imediata.
+        canonical(value)  # JSON estrito rejeita NaN/Infinity.
+
+    def test_diagnostics_and_full_pool_fit_the_bounded_status_mailbox(self):
+        from dfgt_bridge.capture import canonical
+        from dfgt_bridge.physical_worker import MAX_PACKET
+        policy, _ = self.policy()
+        self.frame(policy)
+        policy.frame['effects'] = [[i, 1, True, 1.0] for i in range(1, 41)]
+        policy.frame['game_force'] = dict(pid_gain=1, constant_levels=[[i, -32768] for i in range(1, 41)])
+        value = dict(policy.snapshot(), ready=True, at_ns=policy.now_ns, pid=99999,
+                     keyboards=3, keyboard_errors=[], game_identity=[99999, 123456789],
+                     io=dict(io_calls=99999, last_io_ns=999999, max_io_ns=999999,
+                             gain_commanded=65535, level_uploaded=32767, level_commanded=32767,
+                             uploads=99999, deduplicated=99999))
+        self.assertLessEqual(len(canonical(value).encode()), MAX_PACKET)
 
     def test_invalid_ipc_strength_stops_and_erases(self):
         for percent in (-1, 101, 200, 0.5, True, '100'):

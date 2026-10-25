@@ -158,3 +158,34 @@ class EvdevBackendTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 dev.upload_effect(ConstantForce(value, -1, 160))
         self.assertEqual(self.uploads, [])
+
+    def test_hid_renderer_to_native_evdev_at_100_bypasses_mock_twenty_percent(self):
+        from test_ffb_transport import output, set_report
+        from dfgt_bridge.passive import PassiveSession
+        from dfgt_bridge.supervised import SupervisedPolicy
+        session = PassiveSession(0, strength_percent=20)
+        self.addCleanup(session.core.close)
+        now = 0
+        for packet, feature in ((bytes.fromhex('54010000'), True),
+                                (bytes.fromhex('5501ff7f'), False),
+                                (bytes.fromhex('5a0101ff'), False)):
+            now += 25_000_000
+            raw = set_report(packet, now, 0) if feature else output(packet)
+            result = session.apply('uhid', {'raw_hex': raw.hex()}, now)
+            self.assertIsNone(result['error'])
+        dev = self.backend()
+        policy = SupervisedPolicy(dev, strength=100, maximum=100, slew_per_s=327670)
+        self.addCleanup(lambda: policy.apply('close', {}, policy.now_ns))
+        for generation in range(1, 9):
+            now += 25_000_000
+            result = session.apply('tick', {}, now)
+            policy.apply('frame', dict(generation=generation, calculated_ns=now,
+                                      components=result['components']), now+1_000_000)
+        self.assertEqual(result['components']['constant'], 32767)
+        self.assertLessEqual(result['final_force'], 6553)
+        self.assertEqual(self.uploads[-1].u.constant.level, 32767)
+        self.assertEqual(dev.diagnostic()['level_commanded'], 32767)
+        self.assertEqual(dev.diagnostic()['gain_commanded'], 65535)
+        policy.apply('stop', dict(reason='F9', latch=True), policy.now_ns+1)
+        self.assertEqual(dev.diagnostic()['level_commanded'], 0)
+        self.assertEqual(dev.diagnostic()['gain_commanded'], 0)

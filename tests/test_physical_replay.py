@@ -27,6 +27,7 @@ class PhysicalReplayTests(unittest.TestCase):
         self.config = dict(strength=10, maximum=20, polarity=-1, session_s=120)
         self.policy = SupervisedPolicy(MockBackend(clock=lambda: self.policy.now_ns/1e9), **self.config)
         self.trace_writer = CaptureWriter(self.trace_path, dict(kind='physical_policy', config=self.config,
+                                          diagnostics_version=2,
                                           implementation_sha256=implementation_hash()))
         self.addCleanup(self.trace_writer.close)
         self.now = 1_000_000
@@ -137,3 +138,49 @@ class PhysicalReplayTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replay_physical(self.trace_path)
         self.assertTrue(replay_physical(self.trace_path, verify_compatible=True)['complete'])
+
+    def test_legacy_trace_without_added_diagnostics_still_verifies_all_old_fields(self):
+        self.race()
+        rows = [json.loads(line) for line in self.trace_path.read_text().splitlines()]
+        rows[0]['metadata'].pop('diagnostics_version')
+        for row in rows[1:]:
+            row['result'].pop('force_pipeline')
+        self.rewrite(self.trace_path, rows)
+        self.assertTrue(replay_physical(self.trace_path)['complete'])
+        rows[3]['result']['evdev_level'] += 1
+        self.rewrite(self.trace_path, rows)
+        with self.assertRaisesRegex(ValueError, 'divergiu'):
+            replay_physical(self.trace_path)
+
+    def test_v2_diagnostics_cannot_be_omitted_or_tampered_to_hide_attenuation(self):
+        self.race()
+        original = [json.loads(line) for line in self.trace_path.read_text().splitlines()]
+        for operation in ('omit', 'tamper'):
+            rows = copy.deepcopy(original)
+            if operation == 'omit':
+                rows[3]['result'].pop('force_pipeline')
+            else:
+                rows[3]['result']['force_pipeline']['user_gain'] = 1
+            self.rewrite(self.trace_path, rows)
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, 'divergiu'):
+                replay_physical(self.trace_path)
+
+    def test_signed_evdev_telemetry_is_validated_and_correlated_with_output(self):
+        self.race()
+        original = [json.loads(line) for line in self.trace_path.read_text().splitlines()]
+        for row in original[1:-1]:
+            row['io'] = dict(gain_commanded=row['result']['force_pipeline']['evdev_gain_expected'],
+                             level_commanded=row['result']['evdev_level'], level_uploaded=-32768,
+                             io_calls=100, last_io_ns=1000, max_io_ns=1000)
+        self.rewrite(self.trace_path, original)
+        self.assertTrue(replay_physical(self.trace_path)['complete'])
+        rows = copy.deepcopy(original)
+        rows[3]['io']['level_commanded'] += 1
+        self.rewrite(self.trace_path, rows)
+        with self.assertRaisesRegex(ValueError, 'Magnitude EVDEV'):
+            replay_physical(self.trace_path)
+        rows = copy.deepcopy(original)
+        rows[3]['io']['gain_commanded'] = 65536
+        self.rewrite(self.trace_path, rows)
+        with self.assertRaisesRegex(ValueError, 'Telemetria EVDEV'):
+            replay_physical(self.trace_path)

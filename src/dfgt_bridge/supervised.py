@@ -5,6 +5,7 @@ O processo de I/O injeta EvdevBackend; testes/replay injetam MockBackend.
 Somente step(frame) válido renova FF. poll nunca renova força.
 """
 from dataclasses import asdict
+from collections import deque
 import math
 
 from .ffb.effects import OUTPUT_COMPONENTS
@@ -18,6 +19,9 @@ class SupervisedPolicy:
         validate_percent(maximum)
         if strength > maximum or type(polarity) is not int or polarity not in (-1, 1):
             raise ValueError('Intensidade inicial 0..máximo, teto 0..100%, polaridade ±1')
+        if (type(slew_per_s) not in (int, float) or not math.isfinite(slew_per_s)
+                or slew_per_s <= 0):
+            raise ValueError('Slew físico deve ser finito e positivo em unidades/s')
         self.now_ns = 0
         self.output = ConstantOutput(backend, strength, clock=lambda: self.now_ns/1e9,
                                      max_strength_percent=maximum, test_limit_s=session_s,
@@ -39,9 +43,15 @@ class SupervisedPolicy:
         self.require_game = require_game
         self.game_running = not require_game
         self.game_seen = False
+        self.output_stage = 'awaiting_frame'
+        self.measurement_start_ns = None
+        self.upload_times = deque(maxlen=256)
+        self.play_times = deque(maxlen=256)
+        self.observed_uploads = self.observed_plays = 0
 
     def stop(self, reason, *, latch=False, fatal=False):
         self.output.stop()
+        self.output_stage = 'safety_stop'
         self.output.last_tick = -1e9
         if not self.latched or latch:
             self.reason = reason
@@ -67,6 +77,8 @@ class SupervisedPolicy:
         if self.closed:
             raise ValueError('Política encerrada')
         try:
+            if self.measurement_start_ns is None:
+                self.measurement_start_ns = now_ns
             self.check()
             if action == 'frame':
                 generation, calculated = data['generation'], data['calculated_ns']
@@ -98,6 +110,10 @@ class SupervisedPolicy:
                             before = self.output.writes
                             previous_tick = self.output.last_tick
                             self.output.tick({k: v*self.polarity for k, v in components.items()})
+                            target = round(self.output.last_mix.limited) if self.output.last_mix else 0
+                            self.output_stage = ('zero_request' if target == 0 else
+                                'rate_gate' if self.now_ns/1e9-previous_tick < self.output.interval else
+                                'slew' if self.output.last_sent != target else 'direct')
                             if self.output.playing and self.output.writes == before:
                                 if self.now_ns/1e9-previous_tick >= self.output.interval:
                                     self.deduplicated += 1
@@ -117,6 +133,7 @@ class SupervisedPolicy:
                 self.stop(data['reason'], latch=data.get('latch', False), fatal=data.get('fatal', False))
             elif action == 'strength':
                 self.output.set_strength(validate_percent(data['percent']))
+                self.output_stage = 'strength_change_awaiting_frame'
                 if self.output.strength_percent == 0:
                     self.reason = 'strength_zero'
             elif action == 'arm':
@@ -149,7 +166,47 @@ class SupervisedPolicy:
             finally:
                 self.closed = True
             raise
+        self.upload_times.extend([now_ns]*(self.output.writes-self.observed_uploads))
+        self.play_times.extend([now_ns]*(self.output.play_requests-self.observed_plays))
+        self.observed_uploads, self.observed_plays = self.output.writes, self.output.play_requests
         return self.snapshot()
+
+    def force_pipeline(self, raw_total):
+        """Grandezas comandadas; não é medição do torque nem leitura do ganho global."""
+        gain = self.output.cap/32767
+        after_gain = raw_total*self.polarity*gain if raw_total is not None else None
+        limited = max(-self.output.cap, min(self.output.cap, after_gain)) if after_gain is not None else None
+        sent = self.output.last_sent
+
+        def loss(before, after):
+            if before in (None, 0):
+                return None  # Sem referência; não inventar percentuais para cancelamento/zero.
+            return max(0.0, min(100.0, 100*(1-abs(after)/abs(before))))
+
+        tracking_loss = loss(limited, sent)
+        window = min(1.0, (self.now_ns-self.measurement_start_ns)/1e9) if self.measurement_start_ns is not None else 0
+        uploads = sum(self.now_ns-t < 1_000_000_000 for t in self.upload_times)
+        plays = sum(self.now_ns-t < 1_000_000_000 for t in self.play_times)
+        tracking_error = None if limited in (None, 0) else abs(1-sent/limited)*100
+        if tracking_error is not None and not math.isfinite(tracking_error):
+            tracking_error = None
+        return dict(renderer_signed_reference=None if raw_total is None else max(-32768, min(32767, raw_total)),
+                    user_strength_percent=self.output.strength_percent,
+                    maximum_percent=self.output.max_strength_percent, user_gain=gain,
+                    evdev_gain_expected=65535 if self.output.playing else 0,
+                    after_user_gain=after_gain, after_clipping=limited,
+                    after_safety_slew=sent, evdev_magnitude=abs(sent),
+                    slew_per_s=self.output.slew_per_s, stage=self.output_stage,
+                    direction=0x4000,
+                    uploads_last_second=uploads, uploads_per_second=uploads/window if window else 0,
+                    plays_per_second=plays/window if window else 0,
+                    loss_percent=dict(user_gain=100*(1-gain), clipping=loss(after_gain, limited),
+                        slew=tracking_loss if self.output_stage == 'slew' else 0,
+                        rate_gate=tracking_loss if self.output_stage == 'rate_gate' else 0,
+                        safety=tracking_loss if self.output_stage == 'safety_stop' else 0,
+                        total=loss(raw_total, sent)),
+                    tracking_error_percent=tracking_error,
+                    sign_mismatch=limited is not None and limited*sent < 0)
 
     def snapshot(self):
         mix = self.output.last_mix
@@ -163,6 +220,7 @@ class SupervisedPolicy:
                     game_running=self.game_running,
                     renderer_components=self.frame['components'] if self.frame else {},
                     renderer_total=raw_total, requested_before_limit=mix.requested if mix else 0,
+                    force_pipeline=self.force_pipeline(raw_total),
                     limited_force=mix.limited if mix else 0,
                     game_force=self.frame.get('game_force', {}) if self.frame else {},
                     effects=self.frame.get('effects', []) if self.frame else [],

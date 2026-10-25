@@ -17,7 +17,7 @@ O perfil permanece **100% / máximo 100%, polaridade −1, slew 327670, duraçã
 Feche o jogo e qualquer runner anterior. Execute como `deck`, a partir deste checkout confiável:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo ./install.sh --test-ready
 ```
 
@@ -28,7 +28,7 @@ Instalações repetidas atualizam a cópia protegida e preservam perfis e a pref
 Cole exatamente nas **Opções de inicialização** do DiRT 5, substituindo o launcher antigo:
 
 ```text
-PROTON_ENABLE_HIDRAW=0x046d/0xc24f "/home/deck/.local/bin/dfgt-steam-launch" -- %command%
+PROTON_ENABLE_HIDRAW=0x046d/0xc24f "$HOME/.local/bin/dfgt-steam-launch" -- %command%
 ```
 
 O wrapper usa argumentos separados, sem `eval`. Não coloque o jogo sob sudo. A GUI não precisa permanecer aberta. Em **Geral → Iniciar automaticamente com o jogo**, a preferência afeta a próxima partida. Desativá-la é uma escolha explícita para abrir o jogo sem bridge; uma falha de inicialização com a opção ativa nunca abre o jogo silenciosamente.
@@ -85,7 +85,7 @@ Não descarregue drivers Logitech nem faça bind de dispositivos físicos. Se um
 Desinstalação, com jogo fechado:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo ./uninstall.sh
 ```
 
@@ -137,7 +137,7 @@ os atualiza. Não há necessidade de tornar `/home` ou `/var/lib` graváveis no 
 Com jogo fechado, atualize a instalação existente a partir deste checkout:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo ./install.sh
 ~/.local/bin/dfgt-steam-launch --status
 ~/.local/bin/dfgt-steam-launch --check-ready

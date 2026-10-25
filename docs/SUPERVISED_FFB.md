@@ -11,7 +11,7 @@ A inicialização exige associação PIDFF, entrada EVDEV virtual e FF_CONSTANT 
 Modo passivo, com o mesmo comportamento anterior:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py --gas-axis y
 ```
 

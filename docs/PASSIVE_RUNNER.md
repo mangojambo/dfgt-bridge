@@ -9,7 +9,7 @@ Python 3.10+, UHID e o módulo `hid-universal-pidff` já instalado são os pré-
 Na raiz do projeto, iniciar somente o runner passivo:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py --identity g29 --auto-pidff --gas-axis y
 ```
 

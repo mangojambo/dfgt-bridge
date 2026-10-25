@@ -63,7 +63,7 @@ Pulsos de pressão/soltura dentro do mesmo lote continuam detectáveis. A GUI de
 ## GUI
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 python3 -B scripts/run-gui.py
 ```
 

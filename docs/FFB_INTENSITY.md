@@ -79,7 +79,7 @@ Traces novos registram `diagnostics_version=2` e o replay exige a equivalência 
 Iniciar o runner; esperar `[PRONTO]`, então abrir o DiRT 5 normalmente com o G29 virtual selecionado. Não executar junto de outros bridges/controladores de FFB. Os launchers históricos continuam intactos.
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py \
   --identity g29 --auto-pidff --gas-axis y --enable-ffb \
   --ffb-strength 100 --ffb-max-strength 100 \

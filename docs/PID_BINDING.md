@@ -45,7 +45,7 @@ Mesmo com `--enable-ffb`, nenhum processo de saída física inicia antes dessas 
 Iniciar primeiro em modo passivo, sem outra instância do bridge:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py \
   --identity g29 --auto-pidff --gas-axis y \
   --capture captures/dirt5-pidff-01.jsonl.gz

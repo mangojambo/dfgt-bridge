@@ -1,100 +1,145 @@
 # DFGT Bridge
 
-Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) como volante G29 virtual (`046d:c24f`) no SteamOS/DiRT 5. Os controles da v0.8 são a baseline funcional; o FFB está em desenvolvimento incremental. O operador validou o perfil oficial com força 100%, polaridade −1 e duração ilimitada.
+DFGT Bridge presents a Logitech Driving Force GT as a virtual Logitech G29 on Linux. It was built for SteamOS and DiRT 5, where the virtual wheel gives Proton a HID device the game recognizes while preserving the DFGT's steering, pedals, buttons, and force feedback path.
 
-## Iniciar automaticamente pela Steam
+**Status:** The owner confirmed the complete SteamOS/DiRT 5 integration and physical force feedback. Offline regression tests exercise protocol, mapping, safety policies, service lifecycle, and installer behavior with simulated devices. Hardware checks are called out separately below; this is not a claim that every effect works in every game.
 
-A integração systemd/launcher foi testada offline. A correção do erro 13 separa o socket do diretório privado do backend; a atualização real deve ser conferida com dois testes passivos conforme [o procedimento](docs/STEAM_INTEGRATION.md#correção-do-erro-13-após-a-primeira-ativação-2026-10-25).
+DFGT Bridge is an independent community project. It is not affiliated with, endorsed by, or sponsored by Logitech. Logitech, Driving Force GT, and G29 are trademarks of their respective owner.
+
+## Features
+
+- Virtual G29 identity through Linux UHID, with input report and descriptor compatibility checked against the preserved v0.8 reference.
+- DFGT steering, pedals, button and axis mapping, with a Tk GUI for profiles and presets.
+- DiRT 5 Steam launcher that starts the game only after the virtual device and PID force feedback path report ready.
+- Optional root-owned systemd backend with a credential-checked local socket, lease, device lock, and isolated runtime.
+- Constant-force output to the physical DFGT through Linux EVDEV, with emergency stop, watchdog, bounded effect renewal, and supervised game lifecycle.
+- Offline capture replay and deterministic tests. Detailed captures are opt-in.
+
+## Tested status
+
+| Area | Status |
+|---|---|
+| DiRT 5 recognition, controls, Steam launcher, SteamOS service | Confirmed by the owner on the target SteamOS setup |
+| Full-scale physical FFB profile (100%, polarity -1) | Owner approved and tested |
+| Offline tests | 468 tests passed in the latest recorded run; simulated devices only |
+| Installer, socket protocol, GUI widgets, PID lifecycle | Automated tests with fakes; no clean-install VM or fresh SteamOS image was available here |
+| Non-DiRT 5 games, other wheels, other architectures | Not validated |
+| Fidelity of every PID effect across complete race scenarios | Not established; see [limitations](docs/LIMITATIONS.md) |
+
+The offline suite must never open real `/dev/input`, `/dev/uhid`, hidraw, or USB devices. It does not test motor movement.
+
+## Architecture
+
+```text
+DFGT EVDEV input → bridge mapping → UHID virtual G29 → Proton / game
+                                      ↑                    ↓
+Physical DFGT EVDEV output ← safety supervisor ← HID PIDFF reports
+```
+
+The launcher runs as the desktop user. It reads and validates the user's profile, then sends approved settings through a local `SOCK_SEQPACKET` socket authenticated with `SO_PEERCRED`. The privileged service validates those settings again and runs a fixed backend command from a root-owned snapshot. The service does not accept paths, shell commands, or arbitrary arguments over IPC. `ProtectHome=yes` and `ProtectSystem=strict` remain enabled.
+
+The force path supports the EVDEV `FF_CONSTANT` output available on the DFGT driver. The kernel translates that into device-specific commands. This project does not send proprietary Logitech USB commands.
+
+## Requirements
+
+- SteamOS on a Steam Deck or compatible Linux system with systemd.
+- Logitech Driving Force GT (`046d:c29a`) supported by the installed Linux Logitech driver.
+- Python 3.10 or later, systemd, Tk for the GUI, and existing `uhid` / `hid-universal_pidff` kernel support.
+- Root access once to install the restricted service and its systemd socket. The game and launcher run as the normal user.
+- The physical DFGT must be accessible to the service. The virtual EVDEV node must be readable and writable by the logged-in user through the system's normal device permissions.
+
+The package has no third-party Python runtime dependencies. Physical output currently targets Linux x86_64 EVDEV ABI.
+
+## Install on SteamOS
+
+Close DiRT 5 and any other force-feedback bridge. From a trusted checkout, run:
 
 ```sh
+cd /path/to/dfgt-bridge
 sudo ./install.sh --test-ready
 ```
 
-O teste de prontidão acima é passivo, sem motor. Depois, nas Opções de inicialização do DiRT 5:
+The installer copies only `src/dfgt_bridge` into `/var/lib/dfgt-bridge/runtime`, writes managed systemd units, and creates the user's launcher and profile if needed. It does not start the game or run a motor movement test. `--test-ready` performs a passive virtual-device readiness check; it does not enable physical output. The profile defaults remain 100% strength and maximum, polarity -1, slew 327670, and unlimited session duration. The automatic game integration is enabled for a clean installation and can be disabled in the GUI.
+
+The install command prints the Steam launch option. In Steam, open DiRT 5 → Properties → Launch Options and paste the exact printed line. A typical install for a user named `deck` is:
 
 ```text
-PROTON_ENABLE_HIDRAW=0x046d/0xc24f "/home/deck/.local/bin/dfgt-steam-launch" -- %command%
+PROTON_ENABLE_HIDRAW=0x046d/0xc24f "$HOME/.local/bin/dfgt-steam-launch" -- %command%
 ```
 
-As partidas usam o perfil físico aprovado, sem sudo por partida e sem GUI aberta. Veja [instalação, segurança, validação e recuperação](docs/STEAM_INTEGRATION.md).
+Steam expands environment variables in launch options on supported versions. If it does not on your client, replace `$HOME` with the actual user's home directory. Do not run Proton or the game with `sudo`.
 
-## Organização
-
-```text
-AGENTS.md / README.md / pyproject.toml / .gitignore
-src/dfgt_bridge/       entrada readonly, runner, PID, matemática, captura/replay, mock e EVDEV opt-in
-reference/v0.8/        baseline funcional preservada
-reference/v0.13/       experimento auditado preservado, sem correções retroativas
-archive/experiments/   versões anteriores por família e versão
-scripts/              launchers, ferramentas e bridge Xbox legado
-tests/fixtures/dirt5/  cinco CSVs pequenos originais, 132 registros
-captures/             capturas locais e logs, ignorados pelo Git
-docs/                 auditoria, manifesto, mapa de movimentos e desenvolvimento
-```
-
-A entrada e o runner foram implementados sem alterar as referências. O modo passivo continua padrão; o backend EVDEV supervisionado exige `--enable-ffb` e já teve ensaios de baixa intensidade relatados pelo operador. A faixa completa e o diagnóstico estão em [FFB_INTENSITY.md](docs/FFB_INTENSITY.md). Não há módulos vazios antecipando abstrações futuras.
-
-## Testes e execução segura
-
-Só é necessário Python 3.10+ para os testes offline; não instale `evdev` para executá-los.
+Check readiness without starting DiRT 5:
 
 ```sh
-python3 -B -m unittest discover -s tests -v
+"$HOME/.local/bin/dfgt-steam-launch" --check-ready
+"$HOME/.local/bin/dfgt-steam-launch" --status
 ```
 
-A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **468 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
+The readiness check creates the virtual G29 and verifies PIDFF/EVDEV; it does not authorize physical output. Run it with the wheel connected. The service will stop after the launcher closes.
 
-Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. `scripts/run-passive.py` cria o G29 virtual com controles da v0.8 e, por padrão, calcula FFB exclusivamente no mock. A saída física opcional usa outro processo e os defaults aprovados: **100% / máximo 100%, polaridade −1, slew 327670, duração ilimitada**. Watchdog de cálculo, efeito EVDEV finito, supervisão do jogo e F7/F8/F9/F10 continuam ativos. `scripts/replay-capture.py` valida capturas offline e o trace físico pareado, sempre em mock. Os entrypoints inserem `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
+For an existing installation with a stale socket permission, close the game and reinstall from the updated checkout with `sudo ./install.sh`. This recreates the systemd units and socket while preserving the profile. Run `--check-ready` twice and confirm status returns to `idle` between runs before starting the game. See the [installation guide](docs/INSTALL.md) and [Steam integration notes](docs/STEAM_INTEGRATION.md).
 
-Comandos para execução passiva, captura completa, marcação de fases e replay estão em [PASSIVE_RUNNER.md](docs/PASSIVE_RUNNER.md). Nenhum runner foi iniciado em dispositivos nesta entrega. Para repetir os testes com bloqueio adicional de abertura real de dispositivos: `python3 -B -W error::ResourceWarning scripts/test-offline.py`.
+## GUI and button presets
 
-As [duas capturas reais fornecidas pelo operador](docs/CAPTURE_COMPARISON_20261024.md) passaram no replay offline. O CLI agora usa acelerador em **Y por padrão**, reproduzindo a configuração funcional v0.8 (`--gas-axis y`); o comando anterior sem essa opção enviava o pedal em Z e deixava Y em 255. O descritor e a matemática FFB permanecem intactos.
-
-O operador confirmou o acelerador corrigido. A terceira captura, `dirt5-y-20261024-144639.jsonl.gz`, também passou em replay completo: 20.501 quadros, HID Y 0..255 e zero diferenças entre ABS_Y e HID Y. Os comandos de modo físico, parada independente e procedimento manual de polaridade estão em [SUPERVISED_FFB.md](docs/SUPERVISED_FFB.md). O operador posteriormente relatou força fraca a 5% e 10%; a auditoria e a configuração explícita de 100% estão em [FFB_INTENSITY.md](docs/FFB_INTENSITY.md). Nenhum teste de motor foi executado automaticamente.
-
-A associação automática omitida na refatoração foi restaurada: o runner carrega o PIDFF já instalado quando necessário e só informa `[PRONTO]` após confirmar driver, entrada EVDEV virtual e FF_CONSTANT. Antes disso, a saída física não pode iniciar. A propriedade do nó é conferida por token PHYS; descritor, serial vazio e controles permanecem preservados. O fallback `new_id` é global ao VID/PID e é recusado se houver outro G29. Leia [o diagnóstico e as limitações da associação](docs/PID_BINDING.md) antes do próximo teste passivo.
-
-## GUI e perfis oficiais
+Launch the editor with:
 
 ```sh
 python3 -B scripts/run-gui.py
 ```
 
-A aba **Botões e Eixos** tem vistas próprias/licenciadas do DFGT e G29, seleção visual, detecção readonly, prévia HID, presets por jogo, conflitos, restauração e desfazer/refazer. Abrir a GUI não ativa motor nem cria captura. Borboletas 293/292 e manche 301/300 enviam L1/R1 por padrão; +/− físicos enviam D-pad Up/Down. Perfis usam o mesmo `config.py`/JSON da CLI. Início físico continua explícito, por botão ou `--enable-ffb`. Veja [defaults, auditoria de botões e comandos](docs/PROFILES_AND_MAPPING.md). O giro do dial e a janela interativa ainda precisam de conferência no SteamOS; os widgets foram testados com simuladores.
+The GUI can detect the wheel read-only, preview reports, change axes and button mappings, and save profiles shared with the CLI. Opening the GUI does not activate the motor or create a capture. The default G29 preset maps paddle shifters and handbrake controls to L1/R1; physical codes shared by multiple controls remain indistinguishable. Profiles live under the user's XDG config directory. See [profiles and mappings](docs/PROFILES_AND_MAPPING.md).
 
-## Compatibilidade com caminhos existentes
+## Force feedback settings
 
-Links relativos na raiz preservam os nomes de `launch-dirt5.sh`, `test-180.sh`, `dfgt_bridge.py`, v0.8 e v0.13. O arquivo `shifter.json` permanece na raiz porque experimentos legados usam `Path.home()/dfgt-bridge/shifter.json`. O log anterior foi preservado em `captures/legacy/`, com link local no caminho antigo; log e esse link ficam fora do Git. Esses launchers continuam apontando para o bridge Xbox legado; não foram redirecionados ao novo FFB.
+The approved profile is:
 
-Os conteúdos movidos foram conferidos por SHA-256. Consulte [o mapa completo](docs/REORGANIZATION.json) e [a análise de caminhos](docs/DEVELOPMENT.md). O manifesto da auditoria original continua sendo um registro histórico, com os nomes e hashes originais.
+| Setting | Default |
+|---|---:|
+| Strength / maximum | 100% / 100% |
+| Polarity | -1 |
+| Slew rate | 327670 units/s |
+| Session duration | Unlimited |
+| Virtual identity / PIDFF | G29 / automatic |
 
-## Git local
+F7/F8 adjust strength, F9 latches output to zero, and F10 shows diagnostics. The independent worker watchdog, short EVDEV effect renewal, game-process supervision, and systemd watchdog remain active during an unlimited session. F9 never rearms automatically. Physical output is not used by the offline test backend.
 
-O ambiente disponibiliza `.git/` como uma montagem vazia somente leitura. O repositório desta sessão usa `.git-local/`, dentro do projeto, sem alterar essa montagem. Os comandos abaixo usam o wrapper:
+Full-scale force can move the wheel abruptly and pinch or strike hands. Keep hands clear during setup, ensure the wheel is firmly mounted, disconnect other force-feedback software, and keep the emergency stop available. The bridge cannot prevent unrelated software from writing to the same physical wheel; its lock only coordinates with other instances that honor the same lock. Read [FFB safety and supervision](docs/SUPERVISED_FFB.md) before use.
+
+## Troubleshooting
+
+- **Launcher reports permission denied:** update with `sudo ./install.sh`, then run `--check-ready` twice. The service runtime and user-owned socket now use separate directories. Inspect `~/.local/state/dfgt-bridge/steam.log` and `sudo journalctl -u dfgt-bridge.service -n 100 --no-pager`.
+- **No `[PRONTO]` message:** confirm the DFGT is connected and recognized, then inspect `sudo systemctl status dfgt-bridge.socket dfgt-bridge.service` and the journal. The launcher will not start the game when bridge startup fails.
+- **Reconnect after USB loss:** the reader follows the stable `/dev/input/by-id/` link, not a fixed `eventN`. A disconnect ends the session. Reconnect the wheel and start a new readiness check or game session; the backend does not automatically re-arm.
+- **Controls appear twice:** close other virtual wheel or remapping tools and restart the game after the bridge is ready.
+- **Stop a session:** run `"$HOME/.local/bin/dfgt-steam-launch" --stop`. Check status with `--status`.
+
+For recovery and log locations, see [troubleshooting and recovery](docs/STEAM_INTEGRATION.md#logs-capture-and-recovery).
+
+## Uninstall
+
+With the game closed:
 
 ```sh
-scripts/git-project.sh status
-scripts/git-project.sh log --oneline --decorate
-scripts/git-project.sh show baseline-pre-refactor:dfgt_uhid_g29_probe_v08_driving.py
+cd /path/to/dfgt-bridge
+sudo ./uninstall.sh
 ```
 
-Fora desta restrição, um clone convencional usa `.git/` normalmente; o wrapper aceita ambos. Os metadados locais não entram nos commits. A identidade Git é local ao projeto (`DFGT Bridge contributors <dfgt-bridge@localhost>`); nenhuma configuração global foi alterada. Não há remoto configurado.
+Remove the DiRT 5 Launch Option from Steam. The uninstaller removes managed units, runtime snapshot, and launcher integration while preserving user profiles and logs. It does not unload kernel modules.
 
-## Documentação
+## Limitations
 
-- [Auditoria técnica de FFB](docs/FFB_AUDIT.md)
-- [Manifesto original](docs/FFB_AUDIT_MANIFEST.json)
-- [Plano, caminhos e estado atual](docs/DEVELOPMENT.md)
-- [Matemática PID, sinais, mistura e aproximações](docs/FFB_MATH.md)
-- [Transporte, pool, timeline e scheduler offline](docs/PID_TRANSPORT.md)
-- [Plano de integração com a v0.8 e estado da etapa passiva](docs/INTEGRATION_PLAN.md)
-- [Runner passivo, comandos e contrato de captura/replay](docs/PASSIVE_RUNNER.md)
-- [Associação PIDFF, prontidão e diagnóstico da regressão](docs/PID_BINDING.md)
-- [Comparação das capturas reais e correção do acelerador](docs/CAPTURE_COMPARISON_20261024.md)
-- [FFB EVDEV supervisionado, controles, replay e primeiro ensaio manual](docs/SUPERVISED_FFB.md)
-- [Intensidade 0–100%, perdas, ganho EVDEV e comando de faixa completa](docs/FFB_INTENSITY.md)
-- [Defaults oficiais, GUI, auditoria de botões e perfis por jogo](docs/PROFILES_AND_MAPPING.md)
-- [Inicialização automática pela Steam e serviço SteamOS](docs/STEAM_INTEGRATION.md)
-- [Regras para agentes e colaboradores](AGENTS.md)
+- The virtual identity does not make this a physical G29 and does not reproduce Logitech's USB protocol.
+- The supported physical output is constant force. Other PID effects are rendered or approximated in software; complete race-effect fidelity has not been established.
+- DFGT EVDEV capabilities omit several native condition effects. Inertia and other unsupported effects use approximations.
+- PIDFF fallback association may use a global VID/PID rule on some systems; a future physical G29 could be affected until reboot or module reload. See [PIDFF binding limits](docs/PID_BINDING.md).
+- USB loss stops the active session; reconnection requires a new session.
+- Global gain/autocenter state is not reliably readable or restored. The backend sets these to zero on cleanup.
+- Device exclusivity uses a cooperative lock. Other software that ignores it can still write to the wheel.
+- Other Linux distributions, kernels, Proton versions, games, and hardware revisions need separate validation.
 
-Testes de motor, alterações de drivers físicos, instalação/configuração persistente e avaliação de comandos proprietários Logitech dependem de aprovação separada.
+See [known limitations](docs/LIMITATIONS.md) for the release checklist and validation detail.
+
+## License and attribution
+
+The repository currently declares GPL-2.0-only in source headers and package metadata, but no top-level `LICENSE` file is included yet. Final license approval is pending. The original wheel illustrations are CC0-1.0; their provenance is documented in [asset notes](src/dfgt_bridge/assets/README.md). The project is not affiliated with Logitech.

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Present a Logitech Driving Force GT as a virtual G29 on SteamOS and Linux using DFGT Bridge.">
+  <title>DFGT Bridge — Driving Force GT on SteamOS</title>
+  <style>
+    :root { color-scheme: dark; --bg:#10131a; --panel:#191e28; --muted:#aab4c5; --text:#f5f7fb; --accent:#7be0ba; --line:#303848; }
+    * { box-sizing:border-box }
+    body { margin:0; background:radial-gradient(ellipse at 70% -15%,#28433d 0,transparent 45%),var(--bg); color:var(--text); font:16px/1.6 system-ui,sans-serif }
+    a { color:var(--accent) }
+    .wrap { width:min(1080px,calc(100% - 40px)); margin:auto }
+    header { padding:26px 0; border-bottom:1px solid var(--line) }
+    nav { display:flex; justify-content:space-between; align-items:center; gap:20px }
+    nav strong { letter-spacing:.04em }
+    nav a { margin-left:18px; text-decoration:none; font-size:.94rem }
+    .hero { padding:76px 0 60px; display:grid; grid-template-columns:1.3fr .7fr; align-items:center; gap:55px }
+    h1 { max-width:720px; margin:0 0 18px; font-size:clamp(2.5rem,6vw,4.8rem); line-height:1.04; letter-spacing:-.045em }
+    h2 { font-size:1.8rem; line-height:1.2 }
+    p.lead { max-width:690px; color:#d0d7e3; font-size:1.2rem }
+    .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:26px }
+    .button { display:inline-block; padding:11px 17px; border-radius:8px; border:1px solid var(--accent); text-decoration:none; font-weight:650 }
+    .primary { background:var(--accent); color:#10201b }
+    .art { background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:18px; box-shadow:0 25px 70px #0005 }
+    .art img { width:100%; display:block }
+    .art-row { display:grid; grid-template-columns:1fr 1fr; gap:12px }
+    section { padding:45px 0; border-top:1px solid var(--line) }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px }
+    article h3 { margin:0 0 8px }
+    .muted { color:var(--muted) }
+    .flow { padding:20px; background:#141a21; border:1px solid var(--line); border-radius:12px; font-family:ui-monospace,monospace; color:var(--accent); overflow-wrap:anywhere }
+    .notice { border-left:3px solid var(--accent); padding:4px 0 4px 16px; color:#d0d7e3 }
+    footer { padding:30px 0 45px; margin-top:25px; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem }
+    @media(max-width:760px) { .hero { grid-template-columns:1fr; padding-top:50px; gap:28px }.grid { grid-template-columns:1fr } nav { align-items:flex-start; flex-direction:column } nav a { margin:0 14px 0 0 } }
+  </style>
+</head>
+<body>
+<header><div class="wrap"><nav><strong>DFGT BRIDGE</strong><div><a href="https://github.com/mangojambo/dfgt-bridge/blob/main/README.md">README</a><a href="INSTALL.md">Install</a><a href="LIMITATIONS.md">Limitations</a><a href="https://github.com/mangojambo/dfgt-bridge">GitHub</a></div></nav></div></header>
+<main class="wrap">
+  <div class="hero">
+    <div><p class="muted">STEAMOS · LINUX · SIM RACING</p><h1>Your Driving Force GT, recognized as a G29.</h1><p class="lead">DFGT Bridge presents a virtual HID wheel to Proton and DiRT 5, while routing approved constant force back to the original wheel through Linux EVDEV.</p><div class="actions"><a class="button primary" href="INSTALL.md">Installation guide</a><a class="button" href="https://github.com/mangojambo/dfgt-bridge/blob/main/README.md">Explore the project</a></div><p class="notice">SteamOS and DiRT 5 operation, including 100% force feedback with polarity −1, was confirmed by the project owner.</p></div>
+    <div class="art"><div class="art-row"><img src="assets/dfgt-front.svg" alt="Original schematic illustration of the Driving Force GT"><img src="assets/g29-front.svg" alt="Original schematic illustration of the virtual G29"></div></div>
+  </div>
+  <section><h2>How it works</h2><p class="muted">The game sees a kernel HID device with G29 identity. PIDFF reports travel back through a supervised renderer. Physical output stays behind the DFGT's supported Linux EVDEV constant-force interface.</p><div class="flow">DFGT EVDEV input → mapping → UHID virtual G29 → Proton / game<br>Physical DFGT EVDEV output ← safety supervisor ← HID PIDFF</div></section>
+  <section><h2>Built for a controlled setup</h2><div class="grid"><article><h3>Steam startup</h3><p class="muted">A user-level launcher waits for device readiness before starting the game. A restricted systemd service owns the hardware backend.</p></article><article><h3>Profiles and mapping</h3><p class="muted">Edit buttons, axes, and game presets in the GUI. Profiles are shared by the GUI and command-line tools.</p></article><article><h3>Supervised force</h3><p class="muted">Emergency stop, watchdog, bounded EVDEV effect renewal, and game lifecycle monitoring protect the output path.</p></article></div></section>
+  <section><h2>Validation, clearly labeled</h2><div class="grid"><article><h3>Confirmed on hardware</h3><p class="muted">The owner confirmed SteamOS startup, DiRT 5 recognition, and the approved full-scale FFB profile.</p></article><article><h3>Tested offline</h3><p class="muted">468 deterministic tests use simulated devices. The suite does not open physical devices or move the motor.</p></article><article><h3>Still limited</h3><p class="muted">Complete fidelity for every force effect and compatibility with other games or systems are not established.</p></article></div></section>
+  <section><h2>Force feedback defaults</h2><p>100% strength · 100% maximum · polarity −1 · slew 327670 units/s · unlimited normal session.</p><p class="notice">Full force can move the wheel abruptly. Secure the wheel, keep hands clear during setup, and keep the emergency stop available. Read the <a href="SUPERVISED_FFB.md">safety guide</a> before use.</p></section>
+  <section><h2>Independent community project</h2><p class="muted">DFGT Bridge is not affiliated with, endorsed by, or sponsored by Logitech. Product names identify compatible hardware. Original diagrams are CC0-1.0.</p><p class="muted">The repository's code license is awaiting owner approval before the public release.</p></section>
+</main>
+<footer><div class="wrap">DFGT Bridge · v1.0.0 preparation · SteamOS and Linux · <a href="https://github.com/mangojambo/dfgt-bridge/blob/main/README.md">Source documentation</a></div></footer>
+</body></html>

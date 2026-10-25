@@ -38,3 +38,9 @@ captures/**
 *.bin
 *.zip
 *.tar*
+
+# Desktop/editor local files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

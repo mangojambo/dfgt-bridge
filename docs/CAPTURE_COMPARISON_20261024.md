@@ -110,7 +110,7 @@ Correção: **CLI do runner passa a usar Y por padrão**, conservando `--gas-axi
 Comando preparado, não executado nesta investigação:
 
 ```sh
-cd /home/deck/dfgt-bridge
+cd /path/to/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py \
   --gas-axis y \
   --capture "captures/dirt5-y-$(date +%Y%m%d-%H%M%S).jsonl.gz" \

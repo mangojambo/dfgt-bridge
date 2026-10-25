@@ -208,12 +208,15 @@ class BridgeGUI:
             self.sources.insert('end', source_name(source))
         self.preset.set(PRESETS[self.editor.profile['preset']])
         value = self.editor.preview()
-        self.dfgt_art.highlight(value['physical'], detected=self.editor.detected)
-        self.g29_art.highlight(value['virtual'], self.editor.selected)
+        pulse = value['last_pulse'] or {}
+        self.dfgt_art.highlight(value['physical'], detected=self.editor.detected or pulse.get('source'))
+        self.g29_art.highlight(value['virtual'], self.editor.selected, pulse.get('target'))
         self.notes.set('\n'.join(dict.fromkeys([self.editor.notice, *value['warnings'][:2]])).strip())
         self.live.set('PRÉVIA HID do perfil em edição · físico: '+', '.join(value['physical'])+
                       ' → virtual: '+', '.join(TARGET_NAMES[t] for t in value['virtual'])+
-                      '\nABS_X/Y/Z: '+str(value['physical_axes'])+' · HID: '+str(value['hid_axes'])+' · bytes: '+value['report'])
+                      '\nABS_X/Y/Z: '+str(value['physical_axes'])+' · HID: '+str(value['hid_axes'])+' · bytes: '+value['report']+
+                      '\nVerde = pressionado · azul = seleção · amarelo = último pulso/detecção: '+
+                      (pulse.get('source', 'nenhum'))+' → '+TARGET_NAMES.get(pulse.get('target'), 'sem destino'))
 
     def select(self, target):
         if target.startswith('axis:'):
@@ -306,6 +309,7 @@ class BridgeGUI:
         if self.wheel:
             self.wheel.close();self.wheel = None
         self.editor.detecting = False
+        self.editor.last_pulse = None
         self.editor.observe((*self.editor.state[:3], 0, 0, []));self.refresh()
 
     def command(self, physical):

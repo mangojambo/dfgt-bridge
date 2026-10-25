@@ -128,6 +128,15 @@ class GUITests(unittest.TestCase):
         self.assertEqual(self.app.dfgt_art.active, set())
         wheel.close.assert_called_once()
 
+    def test_short_rotary_pulse_is_visible_without_latching_virtual_output(self):
+        self.app.editor.observe((8192, 255, 255, 0, 0, []), [(1, 704, 1), (1, 704, 0)])
+        self.app.refresh()
+        self.assertEqual(self.app.dfgt_art.active, set())
+        self.assertEqual(self.app.g29_art.active, set())
+        self.assertEqual(self.app.g29_art.detected, 'button:22')
+        self.assertIn('último pulso', self.app.live.get())
+        self.assertIn('Rotary Right', self.app.live.get())
+
     def test_ui_moving_source_requires_conflict_decision_and_undo_restores(self):
         self.app.select('button:1');self.app.input_code.set('293')
         with patch.object(gui.messagebox, 'askyesno', return_value=False):

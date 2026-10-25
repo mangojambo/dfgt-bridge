@@ -20,6 +20,7 @@ class MappingEditor:
         self.state = (8192, 255, 255, 0, 0, [])
         self.detecting = False
         self.detected = None
+        self.last_pulse = None
         self.notice = ''
 
     def commit(self, value):
@@ -94,9 +95,13 @@ class MappingEditor:
     def observe(self, state, events=()):
         previous = active_sources(self.state)
         self.state = tuple(copy.deepcopy(state))
+        presses = [f'key:{code}' for kind, code, value in events if kind == 1 and value == 1 and 0 <= code < 768]
+        edges = sorted(active_sources(state)-previous)
+        candidates = presses+edges
+        if candidates:
+            source = presses[-1] if presses else edges[-1]
+            self.last_pulse = dict(source=source, target=self.profile['mapping']['bindings'].get(source))
         if self.detecting:
-            candidates = [f'key:{code}' for kind, code, value in events if kind == 1 and value == 1 and 0 <= code < 768]
-            candidates.extend(sorted(active_sources(state)-previous))
             if candidates:
                 self.detected = candidates[0]
                 self.detecting = False
@@ -114,4 +119,5 @@ class MappingEditor:
             notes.insert(0, 'Marchas prontas: possíveis conflitos com menus/ações dos botões; configure as marchas no jogo.')
         return dict(physical=sorted(active_sources(self.state)), virtual=sorted(virtual),
                     state=mapped, physical_axes=self.state[:3], hid_axes=hid_axes, report=packet.hex(),
+                    last_pulse=self.last_pulse,
                     warnings=notes)

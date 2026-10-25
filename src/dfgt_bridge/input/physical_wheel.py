@@ -27,6 +27,7 @@ class PhysicalWheel:
             self.dirty = self.dropped = False
             self.resyncs = 0
             self.frame_times_ns = []
+            self.observed_events = []
         except BaseException:
             self.close()
             raise
@@ -46,6 +47,7 @@ class PhysicalWheel:
     def read_frames(self):
         """Um lote limitado; SYN_DROPPED exige descartar e consultar estado."""
         self.frame_times_ns = []
+        self.observed_events = []
         try:
             data = os.read(self.fd, INPUT_EVENT.size * 64)
         except BlockingIOError:
@@ -67,9 +69,11 @@ class PhysicalWheel:
                     self.frame_times_ns.append(seconds * 1_000_000_000 + micros * 1000)
                 continue
             if kind == 3 and code in (0, 1, 2, 16, 17):
+                self.observed_events.append((kind, code, value))
                 self.values[(0, 1, 2, 16, 17).index(code)] = value
                 self.dirty = True
             elif kind == 1 and value in (0, 1):
+                self.observed_events.append((kind, code, value))
                 if value:
                     self.pressed.add(code)
                 else:

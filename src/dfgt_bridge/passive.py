@@ -10,6 +10,7 @@ from .capture import digest, implementation_hash
 from .ffb.renderer import MotionEstimator, MotionState
 from .ffb.session import OfflineSession
 from .input.virtual_g29 import descriptor, input_event, report, VENDOR, PRODUCT
+from .input.mapping import validate_mapping, map_state
 
 
 def describe_uhid(raw):
@@ -42,19 +43,24 @@ class PassiveSession:
     do SYN_REPORT, quando disponível; derivadas não usam o ritmo de FFB.
     """
     def __init__(self, origin_ns, *, capacity=40, strength_percent=20,
-                 gas_axis='z', invert_gas=False):
+                 gas_axis='z', invert_gas=False, mapping=None):
         if gas_axis not in ('z', 'y', 'both') or type(invert_gas) is not bool:
             raise ValueError('Opções de entrada inválidas')
         self.origin_ns = self.timestamp_ns = origin_ns
         self.config = dict(capacity=capacity, strength_percent=strength_percent,
                            gas_axis=gas_axis, invert_gas=invert_gas)
+        self.mapping = validate_mapping(mapping) if mapping is not None else None
+        if self.mapping is not None:
+            self.config['mapping'] = self.mapping
         self.core = OfflineSession(self.clock, capacity=capacity, strength_percent=strength_percent,
                                    close_terminates=False, test_limit_s=None)
         self.estimator = MotionEstimator()
         self.motion = MotionState((8192-8191.5)/8191.5)
         self.sample_ns = None
         self.last_state_report = None
-        self.last_input = report((8192, 255, 255, 0, 0, []), gas_axis, invert_gas)
+        initial = (8192, 255, 255, 0, 0, [])
+        self.last_input = report(map_state(initial, self.mapping) if self.mapping is not None else initial,
+                                 gas_axis, invert_gas)
         self.core.transport.input_report = lambda: self.last_input
         self.phase = 'initialization_unattributed'
         self.previous_state = self.state()
@@ -116,7 +122,8 @@ class PassiveSession:
             else:
                 self.motion = MotionState((state[0]-8191.5)/8191.5)
                 info['motion_reason'] = 'sample_older_than_initial_snapshot'
-            self.last_input = report(state, self.config['gas_axis'], self.config['invert_gas'])
+            mapped = map_state(state, self.mapping) if self.mapping is not None else state
+            self.last_input = report(mapped, self.config['gas_axis'], self.config['invert_gas'])
             writes.append(input_event(self.last_input))
             self.core.tick(state[0], motion=self.motion)
             info['input_report_hex'] = self.last_input.hex()

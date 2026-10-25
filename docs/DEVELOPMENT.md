@@ -225,9 +225,10 @@ O perfil já era carregado pelo launcher e revalidado no serviço; preservamos I
 fechado, home inacessível, isolamento e defaults aprovados. A atualização confere
 locks antigos e novos e recria o socket por reinstalação das unidades.
 
-468 testes offline passam. Novos casos cobrem home bloqueado simulado, cópia
-privada 0600, permissões, cleanup, árvores systemd distintas, migração e USB com
-novo fd pelo mesmo by-id. Referências, descritor e matemática não mudaram.
-Procedimento de atualização e dois probes passivos em STEAM_INTEGRATION.md.
-Nenhum serviço/dispositivo/motor foi iniciado; validação nativa permanece com o
-operador.
+The original 468-test offline suite passed. New cases cover a simulated blocked
+home directory, private 0600 profile copy, permission failures, cleanup, distinct
+systemd state trees, migration, and USB reconnection through a new fd for the
+same by-id device. References, descriptors, and force-feedback math were
+unchanged. Update steps and two passive probes are documented in
+STEAM_INTEGRATION.md. No service, device, or motor was started; native validation
+remains with the operator.

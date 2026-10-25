@@ -4,8 +4,8 @@
 - [x] No capture/log blobs in current Git index; `.gitignore` excludes local captures and Python artifacts.
 - [x] Reachable history scanned for common private-key and credential patterns; no findings.
 - [x] Authenticated GitHub owner checked: `mangojambo`; no existing `dfgt-bridge` repository found in owner list/search.
-- [x] Offline suite passed (468); physical devices were not opened.
-- [ ] Owner approves license. Existing files declare GPL-2.0-only; add matching top-level license text after approval.
+- [x] Offline suite passed (479 tests); physical devices were not opened.
+- [x] Owner approved GPL-2.0-only; matching top-level LICENSE file added.
 - [ ] Owner reviews public history and confirms repository can be public.
 - [ ] Create `mangojambo/dfgt-bridge` as public only after approval.
 - [ ] Push prepared conventional Git repository and verify default branch/history.

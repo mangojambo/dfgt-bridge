@@ -1,12 +1,12 @@
-# License review for owner decision
+# License and attribution
 
-No final license is selected in this release preparation. The working tree currently declares `GPL-2.0-only` in Python SPDX headers and `pyproject.toml`, but the repository has no top-level `LICENSE` text. That mismatch must be resolved before a public release. No license file or final license decision has been added here.
+The owner approved `GPL-2.0-only`. A top-level `LICENSE` file now contains the complete GNU GPL version 2 text, matching existing Python SPDX headers and `pyproject.toml`. Approval of this license does not authorize public repository creation or push.
 
-## Recommendation for approval
+## License decision
 
-Approve **GPL-2.0-only** for the code, with a complete GPL-2.0 license text in the repository. The preserved v0.8 HID descriptor reference explicitly attributes its descriptor source to `userspace/logi-wheel` under GPL-2.0-only, and the maintained implementation carries the same SPDX declaration. GPL-2.0-only is consistent with those existing notices. The historical code also describes the MIT-licensed `uhid-sim-relay` as an inspiration; the maintained package has no direct third-party Python runtime dependencies and does not vendor that project.
+The approved code license is **GPL-2.0-only**, with a complete GPL version 2 text in `LICENSE`. The preserved v0.8 HID descriptor reference explicitly attributes its descriptor source to `userspace/logi-wheel` under GPL-2.0-only, and the maintained implementation carries the same SPDX declaration. GPL-2.0-only is consistent with those existing notices. The historical code also describes the MIT-licensed `uhid-sim-relay` as an inspiration; the maintained package has no direct third-party Python runtime dependencies and does not vendor that project.
 
-This is a provenance and compatibility recommendation, not legal advice or a finalized choice. If the owner prefers a different license, review the derived descriptor and source attribution before changing notices. The historical source mentions do not independently establish permission to relicense derived material under a more permissive license.
+This is a provenance and compatibility record, not legal advice. Review the derived descriptor and source attribution before changing notices. The historical source mentions do not independently establish permission to relicense derived material under a more permissive license.
 
 ## Runtime and development dependencies
 

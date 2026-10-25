@@ -21,7 +21,7 @@ DFGT Bridge is an independent community project. It is not affiliated with, endo
 |---|---|
 | DiRT 5 recognition, controls, Steam launcher, SteamOS service | Confirmed by the owner on the target SteamOS setup |
 | Full-scale physical FFB profile (100%, polarity -1) | Owner approved and tested |
-| Offline tests | 468 tests passed in the latest recorded run; simulated devices only |
+| Offline tests | 479 tests pass in the latest offline run; simulated devices only |
 | Installer, socket protocol, GUI widgets, PID lifecycle | Automated tests with fakes; no clean-install VM or fresh SteamOS image was available here |
 | Non-DiRT 5 games, other wheels, other architectures | Not validated |
 | Fidelity of every PID effect across complete race scenarios | Not established; see [limitations](docs/LIMITATIONS.md) |
@@ -88,7 +88,7 @@ Launch the editor with:
 python3 -B scripts/run-gui.py
 ```
 
-The GUI can detect the wheel read-only, preview reports, change axes and button mappings, and save profiles shared with the CLI. Opening the GUI does not activate the motor or create a capture. The default G29 preset maps paddle shifters and handbrake controls to L1/R1; physical codes shared by multiple controls remain indistinguishable. Profiles live under the user's XDG config directory. See [profiles and mappings](docs/PROFILES_AND_MAPPING.md).
+The GUI defaults to English and also supports Portuguese (Brazil), with a live language switch saved independently from game profiles. It can detect the wheel read-only, preview reports, change axes and button mappings, and save profiles shared with the CLI. Opening the GUI does not activate the motor or create a capture. The default G29 preset maps paddle shifters and handbrake controls to L1/R1; physical codes shared by multiple controls remain indistinguishable. Profiles live under the user's XDG config directory. See [profiles and mappings](docs/PROFILES_AND_MAPPING.md).
 
 ## Force feedback settings
 
@@ -138,8 +138,8 @@ Remove the DiRT 5 Launch Option from Steam. The uninstaller removes managed unit
 - Device exclusivity uses a cooperative lock. Other software that ignores it can still write to the wheel.
 - Other Linux distributions, kernels, Proton versions, games, and hardware revisions need separate validation.
 
-See [known limitations](docs/LIMITATIONS.md) for the release checklist and validation detail.
+See [known limitations](docs/LIMITATIONS.md) for the release checklist and validation detail. The native desktop interface is described in the [GUI guide](docs/GUI.md).
 
 ## License and attribution
 
-The repository currently declares GPL-2.0-only in source headers and package metadata, but no top-level `LICENSE` file is included yet. Final license approval is pending. The original wheel illustrations are CC0-1.0; their provenance is documented in [asset notes](src/dfgt_bridge/assets/README.md). The project is not affiliated with Logitech.
+The code is licensed under GPL-2.0-only; see [LICENSE](LICENSE). The original wheel illustrations are CC0-1.0; their provenance is documented in [asset notes](src/dfgt_bridge/assets/README.md). The project is not affiliated with Logitech.

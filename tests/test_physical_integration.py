@@ -83,3 +83,23 @@ class PhysicalIntegrationTests(unittest.TestCase):
         self.assert_closed()
         footer = json.loads(self.path.read_text().splitlines()[-1])
         self.assertEqual(footer['reason'], 'GUI_control_EOF')
+
+    def test_service_status_is_not_ready_until_physical_backend_acknowledges(self):
+        self.args.enable_ffb=True
+        physical=FakePhysical();counter={'n':0};events=[]
+        def diagnostic():
+            counter['n']+=1
+            return dict(ready=counter['n']>=3,closed=physical.closed,evdev_level=0)
+        physical.diagnostic=diagnostic
+        self.binder.last=dict(self.binder.last,ff_input=['fake-event'])
+        self.execute(physical_factory=Mock(return_value=physical),status_callback=lambda v:events.append((counter['n'],v)))
+        self.assertEqual(len(events),1)
+        self.assertGreaterEqual(events[0][0],3)
+        self.assertTrue(events[0][1]['physical_ready'])
+        self.assertEqual(events[0][1]['binding']['driver'],'hid-universal-pidff')
+
+    def test_service_scope_is_forwarded_without_affecting_default_physical_profile(self):
+        self.args.enable_ffb=True;self.args.game_uid=1000;self.args.game_after_ticks=123
+        factory=Mock(return_value=FakePhysical())
+        self.execute(physical_factory=factory)
+        self.assertEqual(factory.call_args.kwargs['game_scope'],dict(uid=1000,after_ticks=123))

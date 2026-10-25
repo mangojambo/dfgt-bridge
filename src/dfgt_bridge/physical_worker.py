@@ -53,7 +53,7 @@ class Mailbox:
         return json.loads(raw)
 
 
-def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, path, config, keyboard_path, trace_path, game_pid=None):
+def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, path, config, keyboard_path, trace_path, game_pid=None, game_scope=None):
     # Imports físicos somente no processo explicitamente autorizado.
     from .backends.evdev import EvdevBackend
     from .input.global_keys import GlobalKeys
@@ -72,7 +72,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                                    implementation_sha256=implementation_hash(), physical_id=[0x046d, 0xc29a]))
         backend = EvdevBackend(path, enable_ffb=True)
         policy = SupervisedPolicy(backend, **config)
-        game = GameMonitor(game_pid)
+        game = GameMonitor(game_pid, **(game_scope or {}))
         last_game = None
         keys = GlobalKeys(enable_ffb=True, path=keyboard_path)
         if not keys.devices:
@@ -193,7 +193,7 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
 
 
 class PhysicalClient:
-    def __init__(self, path, *, enable_ffb=False, config=None, keyboard_path=None, trace_path=None, game_pid=None):
+    def __init__(self, path, *, enable_ffb=False, config=None, keyboard_path=None, trace_path=None, game_pid=None, game_scope=None):
         if enable_ffb is not True:
             raise PermissionError('Processo físico exige --enable-ffb')
         self.config = dict(config or dict(strength=FFB_DEFAULTS['ffb_strength'],
@@ -210,7 +210,7 @@ class PhysicalClient:
         self.channel, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self.channel.setblocking(False)
         self.process = ctx.Process(target=worker, args=(child, self.status, self.commands,
-                                   self.stop_epoch, self.emergency_epoch, self.quit_flag, path, self.config, keyboard_path, trace_path, game_pid))
+                                   self.stop_epoch, self.emergency_epoch, self.quit_flag, path, self.config, keyboard_path, trace_path, game_pid, game_scope))
         self.ready = False
         self.latest = None
         self.generation = self.coalesced = self.nonce = 0

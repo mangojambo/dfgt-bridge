@@ -56,7 +56,8 @@ def diagnostic(session, runtime, elapsed, previous_events):
 
 
 def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
-        selector_factory=selectors.DefaultSelector, stop=None, physical_factory=None, binding_factory=None):
+        selector_factory=selectors.DefaultSelector, stop=None, physical_factory=None, binding_factory=None,
+        status_callback=None):
     """Factories injetáveis para testes offline. Não há factory de backend."""
     origin = time.monotonic_ns()
     stop = {'reason': None} if stop is None else stop
@@ -111,10 +112,13 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                 if physical_factory is None:
                     from .physical_worker import PhysicalClient
                     physical_factory = PhysicalClient
+                scope = {}
+                if getattr(args, 'game_uid', None) is not None:
+                    scope['game_scope'] = dict(uid=args.game_uid, after_ticks=args.game_after_ticks)
                 physical = stack.enter_context(physical_factory(
                     args.source, enable_ffb=True, config=physical_config,
                     keyboard_path=getattr(args, 'keyboard_event', None), trace_path=trace_path,
-                    game_pid=getattr(args, 'game_pid', None)))
+                    game_pid=getattr(args, 'game_pid', None), **scope))
 
             def dispatch(kind, data, stamp=None):
                 started = time.monotonic_ns()
@@ -156,6 +160,7 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
             next_tick = time.monotonic_ns()
             last_summary = next_tick
             previous_events = 0
+            reported_ready = False
             while stop['reason'] is None and not session.core.closed:
                 try:
                     bound = binding.poll()
@@ -182,6 +187,12 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                         start_physical()
                 if physical:
                     physical.service()
+                if (runtime['ready'] and not reported_ready and
+                        (not enable_ffb or physical.diagnostic().get('ready') is True)):
+                    if status_callback:
+                        status_callback(dict(state='ready', binding=binding.last,
+                                             physical_ready=enable_ffb))
+                    reported_ready = True
                 for key, _ in selector.select(.01):
                     if key.data == 'uhid':
                         # Não drenar infinitamente: dar oportunidade a input/tick.
@@ -244,7 +255,8 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                     next_tick = now + 22_222_223  # Sem recuperar ticks antigos por rajada.
                 if now-last_summary >= 1_000_000_000:
                     runtime['binding'] = [binding.last]
-                    previous_events = diagnostic(session, runtime, (now-last_summary)/1e9, previous_events)
+                    if not getattr(args, 'operational_log', False):
+                        previous_events = diagnostic(session, runtime, (now-last_summary)/1e9, previous_events)
                     if writer:
                         writer.flush()
                     last_summary = now
@@ -264,13 +276,18 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
         if binding is not None:
             runtime['binding'] = [binding.last]
         failure = type(exc).__name__ + ': ' + str(exc)
+        if status_callback:
+            status_callback(dict(state='failed', error=failure[:1000], binding=runtime['binding']))
         # ExitStack já removeu UHID/entrada; não tentar entregar mais pacotes.
         # Se o stream fechou, a falta do footer denuncia captura interrompida.
         raise
     finally:
         session.core.close()
-        print(json.dumps(dict(summary=session.summary(), runtime=runtime,
-                              complete=complete, failure=failure), sort_keys=True), flush=True)
+        if getattr(args, 'operational_log', False):
+            print(json.dumps(dict(event='runner_exit', reason=stop['reason'], failure=failure, complete=complete)), flush=True)
+        else:
+            print(json.dumps(dict(summary=session.summary(), runtime=runtime,
+                                  complete=complete, failure=failure), sort_keys=True), flush=True)
     return session.summary()
 
 
@@ -282,6 +299,10 @@ def main(argv=None):
     parser.add_argument('--profiles-file', help='JSON de perfis; padrão XDG_CONFIG_HOME/dfgt-bridge/profiles.json')
     parser.add_argument('--save-profile', action='store_true', help='Salvar opções explícitas no perfil antes de executar')
     parser.add_argument('--control-stdin', action='store_true', help='Console via pipe da GUI; EOF encerra o bridge')
+    parser.add_argument('--operational-log', action='store_true', help='Somente eventos operacionais, sem diagnóstico periódico')
+    parser.add_argument('--status-fd', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--game-uid', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--game-after-ticks', type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument('--preset', choices=('g29', 'gears', 'custom'))
     parser.add_argument('--auto-pidff', action='store_true', default=None,
                         help='Compatibilidade v0.8: associação PIDFF automática já é padrão')
@@ -335,6 +356,8 @@ def main(argv=None):
         parser.error('--bind-timeout deve ser 1..60 segundos')
     if args.game_pid is not None and args.game_pid < 1:
         parser.error('--game-pid deve ser positivo e identificar DiRT5.exe')
+    if args.game_uid is not None and (args.game_uid <= 0 or args.game_after_ticks < 1):
+        parser.error('Escopo de jogo inválido')
     if args.duration is not None and (not __import__('math').isfinite(args.duration) or args.duration <= 0):
         parser.error('--duration deve ser finita e positiva')
     if args.save_profile:
@@ -351,7 +374,20 @@ def main(argv=None):
     try:
         for number in (signal.SIGINT, signal.SIGTERM):
             previous[number] = signal.signal(number, interrupted)
-        run(args, stop=stop)
+        channel = None
+        if args.status_fd is not None:
+            import socket
+            channel = socket.socket(fileno=args.status_fd)
+            channel.settimeout(.1)
+        try:
+            callback = (lambda value: channel.send(json.dumps(value, allow_nan=False).encode())) if channel else None
+            if callback:
+                run(args, stop=stop, status_callback=callback)
+            else:
+                run(args, stop=stop)
+        finally:
+            if channel:
+                channel.close()
     except (OSError, EOFError, ValueError, BindingError) as exc:
         print('Runner encerrado: ' + str(exc), file=sys.stderr)
         return 1

@@ -60,3 +60,12 @@ class GameMonitorTests(unittest.TestCase):
         frame.update(generation=3, calculated_ns=7)
         self.assertEqual(policy.apply('frame', frame, 7)['evdev_level'], 0)
 
+    def test_service_scope_requires_owner_appid_and_new_process_identity(self):
+        import os
+        self.process(2,start=123)
+        (self.root/'2/environ').write_bytes(b'SteamAppId=1038250\0')
+        self.assertEqual(GameMonitor(2,root=self.root,uid=os.getuid(),after_ticks=100,appid='1038250').poll(0),(2,123))
+        self.assertIsNone(GameMonitor(2,root=self.root,uid=os.getuid()+1,appid='1038250').poll(0))
+        self.assertIsNone(GameMonitor(2,root=self.root,uid=os.getuid(),after_ticks=124,appid='1038250').poll(0))
+        self.assertIsNone(GameMonitor(2,root=self.root,uid=os.getuid(),appid='999').poll(0))
+

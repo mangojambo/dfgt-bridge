@@ -36,6 +36,7 @@ class BridgeGUI:
         self.locale_store = locale_store or LocaleStore(store.path.with_name('ui.json'))
         self.locale = self.locale_store.load()
         self._text_widgets, self._notebook_tabs = [], []
+        self._scroll_views = {}
         self.editor = MappingEditor(store.load(profile))
         self.active_profile = profile
         self.saved_profile = copy.deepcopy(self.editor.profile)
@@ -132,6 +133,7 @@ class BridgeGUI:
         canvas.pack(side='left', fill='both', expand=True)
         content = ttk.Frame(canvas, padding=padding)
         window = canvas.create_window((0, 0), window=content, anchor='nw')
+        self._scroll_views[parent] = (canvas, scrollbar, content)
         content.bind('<Configure>', lambda _event: canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>', lambda event: canvas.itemconfigure(window, width=event.width))
         canvas.bind('<Button-4>', lambda _event: canvas.yview_scroll(-1, 'units'))
@@ -282,9 +284,12 @@ class BridgeGUI:
         manual.grid(row=4, column=0, sticky='ew', pady=(0, 8))
         self._text_widgets.append((manual, 'settings.manual_panel'))
         controls = ttk.Frame(manual);controls.grid(row=0, column=0, sticky='w')
-        self.button(controls, 'settings.passive_start', lambda: self.start(False), style='Passive.TButton', width=24).grid(row=0, column=0, padx=(0, 7), pady=3)
-        self.button(controls, 'settings.physical_start', lambda: self.start(True), style='Physical.TButton', width=24).grid(row=0, column=1, padx=7, pady=3)
-        self.button(controls, 'settings.stop', self.stop, style='Stop.TButton', width=24).grid(row=0, column=2, padx=7, pady=3)
+        self.passive_start_button = self.button(controls, 'settings.passive_start', lambda: self.start(False), style='Passive.TButton', width=24)
+        self.passive_start_button.grid(row=0, column=0, padx=(0, 7), pady=3)
+        self.physical_start_button = self.button(controls, 'settings.physical_start', lambda: self.start(True), style='Physical.TButton', width=24)
+        self.physical_start_button.grid(row=0, column=1, padx=7, pady=3)
+        self.stop_button = self.button(controls, 'settings.stop', self.stop, style='Stop.TButton', width=24)
+        self.stop_button.grid(row=0, column=2, padx=7, pady=3)
         self.button(controls, 'settings.copy', self.copy_command, width=24).grid(row=1, column=0, sticky='w', padx=(0, 7), pady=(6, 0))
         self.label(manual, 'settings.passive_help', wraplength=480).grid(row=1, column=0, sticky='w', pady=(4, 0))
         self.label(manual, 'settings.physical_help', wraplength=480).grid(row=2, column=0, sticky='w', pady=(2, 0))
@@ -351,6 +356,7 @@ class BridgeGUI:
         self.sources = tk.Listbox(source_rows, height=4, width=42, exportselection=False, activestyle='dotbox')
         source_y = ttk.Scrollbar(source_rows, orient='vertical', command=self.sources.yview)
         source_x = ttk.Scrollbar(source_rows, orient='horizontal', command=self.sources.xview)
+        self.source_x_scrollbar = source_x
         self.sources.configure(yscrollcommand=source_y.set, xscrollcommand=source_x.set)
         self.sources.grid(row=0, column=0, sticky='nsew')
         source_y.grid(row=0, column=1, sticky='ns')

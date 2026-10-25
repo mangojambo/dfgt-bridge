@@ -3,6 +3,7 @@ import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
+from tkinter import ttk
 
 from test_ffb_audit import ROOT
 from dfgt_bridge.config import ProfileStore
@@ -26,37 +27,54 @@ class NativeTkStartupTests(unittest.TestCase):
                 self.assertTrue(page.winfo_exists())
             self.assertEqual(app.profile_name.get(), 'dirt5')
 
-            for geometry in ('1280x800', '1600x900'):
-                root.geometry(geometry)
-                app.tabs.select(app.mapping)
-                root.update_idletasks()
-                self.assertGreater(app.dfgt_canvas.winfo_width(), 200)
-                self.assertGreater(app.g29_canvas.winfo_height(), 200)
-                for art in (app.dfgt_art, app.g29_art):
-                    for item in art.canvas.find_all():
-                        bounds = art.canvas.bbox(item)
-                        if bounds:
-                            self.assertGreaterEqual(bounds[0], 0)
-                            self.assertGreaterEqual(bounds[1], 0)
-                            self.assertLessEqual(bounds[2], art.canvas.winfo_width())
-                            self.assertLessEqual(bounds[3], art.canvas.winfo_height())
-                self.assertGreaterEqual(app.mapping_inspector.winfo_width(), 340)
-                app.tabs.select(app.settings)
-                root.update_idletasks()
-                self.assertFalse(app.settings_advanced.winfo_ismapped())
-                self.assertFalse(app.input_details.winfo_ismapped())
-                app.toggle_advanced()
-                app.toggle_input_details()
-                root.update_idletasks()
-                self.assertTrue(app.settings_advanced.winfo_ismapped())
-                self.assertTrue(app.input_details.winfo_ismapped())
-                app.toggle_advanced()
-                app.toggle_input_details()
+            for locale, language_label in (('en', 'English'), ('pt-BR', 'Português (Brasil)')):
+                if app.locale != locale:
+                    app.language.set(language_label)
+                    app.change_language()
+                for geometry, expected_wide in (('1000x700', False), ('1280x800', True), ('1600x900', True)):
+                    root.geometry(geometry)
+                    app.tabs.select(app.mapping)
+                    root.update_idletasks()
+                    self.assertEqual(app.mapping_wide, expected_wide)
+                    self.assertGreater(app.dfgt_canvas.winfo_width(), 200)
+                    self.assertGreater(app.g29_canvas.winfo_height(), 200)
+                    for art in (app.dfgt_art, app.g29_art):
+                        for item in art.canvas.find_all():
+                            bounds = art.canvas.bbox(item)
+                            if bounds:
+                                self.assertGreaterEqual(bounds[0], 0)
+                                self.assertGreaterEqual(bounds[1], 0)
+                                self.assertLessEqual(bounds[2], art.canvas.winfo_width())
+                                self.assertLessEqual(bounds[3], art.canvas.winfo_height())
+                    self.assertGreaterEqual(app.mapping_inspector.winfo_width(), 340)
+                    self.assertGreater(app.source_x_scrollbar.winfo_width(), 10)
+                    self.assertNotEqual(str(app.target_box.cget('takefocus')), '0')
+                    scroll_view = app._scroll_views[app.mapping][0]
+                    self.assertEqual(len(scroll_view.cget('scrollregion').split()), 4)
+                    if expected_wide:
+                        self.assertGreaterEqual(app.mapping_inspector.winfo_rootx(),
+                                                app.g29_card.winfo_rootx()+app.g29_card.winfo_width()-2)
+                    else:
+                        wheel_bottom = max(app.dfgt_card.winfo_rooty()+app.dfgt_card.winfo_height(),
+                                           app.g29_card.winfo_rooty()+app.g29_card.winfo_height())
+                        self.assertGreater(app.mapping_inspector.winfo_rooty(), wheel_bottom-2)
+                    app.tabs.select(app.settings)
+                    root.update_idletasks()
+                    self.assertFalse(app.settings_advanced.winfo_ismapped())
+                    self.assertFalse(app.input_details.winfo_ismapped())
+                    app.toggle_advanced()
+                    app.toggle_input_details()
+                    root.update_idletasks()
+                    self.assertTrue(app.settings_advanced.winfo_ismapped())
+                    self.assertTrue(app.input_details.winfo_ismapped())
+                    app.toggle_advanced()
+                    app.toggle_input_details()
 
-            app.language.set('Português (Brasil)')
-            app.change_language()
-            self.assertEqual(app.locale, 'pt-BR')
-            self.assertEqual(root.title(), app.t('app.title'))
+            style = ttk.Style(root)
+            self.assertTrue(style.lookup('TButton', 'focuscolor'))
+            self.assertEqual(str(app.passive_start_button.cget('style')), 'Passive.TButton')
+            self.assertEqual(str(app.physical_start_button.cget('style')), 'Physical.TButton')
+            self.assertEqual(str(app.stop_button.cget('style')), 'Stop.TButton')
             self.assertEqual(app.locale_store.load(), 'pt-BR')
             app.language.set('English')
             app.change_language()

@@ -92,7 +92,9 @@ class GUITests(unittest.TestCase):
         self.popen.assert_not_called()
         self.assertFalse(self.store.path.exists())
         self.assertEqual(self.app.form['ffb_strength'].get(), 100)
+        self.assertEqual(self.app.form['ffb_max_strength'].get(), 100)
         self.assertEqual(self.app.form['ffb_polarity'].get(), -1)
+        self.assertEqual(self.app.form['ffb_slew_rate'].get(), 327670)
         self.assertEqual(self.app.form['ffb_seconds'].get(), 'unlimited')
 
     def test_all_virtual_buttons_have_clickable_front_hotspots(self):

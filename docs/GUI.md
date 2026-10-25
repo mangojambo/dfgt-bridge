@@ -16,7 +16,7 @@ Mapping supports the complete existing button set, axis selection, presets, read
 
 ## Force feedback and safety
 
-The approved settings remain 100% strength, 100% maximum, polarity -1, slew 327670, and unlimited normal session duration. Physical FFB starts only through an explicit GUI action or the configured Steam launcher. Opening or editing the GUI does not open a physical output device or create a capture. F9, the independent stop command, effect renewal bound, worker watchdog, and game supervision remain available. See [supervised FFB](SUPERVISED_FFB.md).
+The main Settings view keeps FFB strength visible; maximum strength, polarity, slew, and duration are grouped under Advanced. Approved values remain 100% strength, 100% maximum, polarity -1, slew 327670, and unlimited normal session duration. Physical FFB starts only through an explicit GUI action or the configured Steam launcher. Opening or editing the GUI does not open a physical output device or create a capture. F9, the independent stop command, effect renewal bound, worker watchdog, and game supervision remain available. See [supervised FFB](SUPERVISED_FFB.md).
 
 ## Screenshot validation
 

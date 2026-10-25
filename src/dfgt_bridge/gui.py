@@ -187,39 +187,41 @@ class BridgeGUI:
     def build_setup(self, frame):
         self.label(frame, 'settings.heading', font=('', 19, 'bold')).grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 7))
         self.label(frame, 'settings.identity').grid(row=1, column=0, columnspan=3, sticky='w', pady=(0, 14))
-        labels = {'ffb_strength': 'settings.strength', 'ffb_max_strength': 'settings.maximum',
-                  'ffb_polarity': 'settings.polarity', 'ffb_slew_rate': 'settings.slew',
-                  'ffb_seconds': 'settings.duration'}
-        for row, (name, key) in enumerate(labels.items(), 2):
-            self.label(frame, key).grid(row=row, column=0, sticky='w', pady=5)
-            self.form[name] = self._variable()
-            ttk.Entry(frame, textvariable=self.form[name], width=24).grid(row=row, column=1, sticky='w')
-        self.label(frame, 'settings.input').grid(row=7, column=0, sticky='w', pady=8)
+        self.label(frame, 'settings.strength').grid(row=2, column=0, sticky='w', pady=5)
+        self.form['ffb_strength'] = self._variable()
+        ttk.Entry(frame, textvariable=self.form['ffb_strength'], width=24).grid(row=2, column=1, sticky='w')
+        self.label(frame, 'settings.input').grid(row=3, column=0, sticky='w', pady=8)
         if hasattr(self.source, 'trace_add'):
             self.source.trace_add('write', lambda *_: self.update_dirty())
-        ttk.Entry(frame, textvariable=self.source, width=65).grid(row=7, column=1, columnspan=2, sticky='we')
-        self.checkbutton(frame, 'settings.elevated', self.elevated, lambda: None).grid(row=8, column=0, columnspan=3, sticky='w')
-        row = ttk.Frame(frame);row.grid(row=9, column=0, columnspan=3, sticky='w', pady=12)
+        ttk.Entry(frame, textvariable=self.source, width=65).grid(row=3, column=1, columnspan=2, sticky='we')
+        self.checkbutton(frame, 'settings.elevated', self.elevated, lambda: None).grid(row=4, column=0, columnspan=3, sticky='w')
+        row = ttk.Frame(frame);row.grid(row=5, column=0, columnspan=3, sticky='w', pady=12)
         self.button(row, 'settings.passive_start', lambda: self.start(False)).pack(side='left')
         self.button(row, 'settings.physical_start', lambda: self.start(True)).pack(side='left', padx=7)
         self.button(row, 'settings.stop', self.stop).pack(side='left', padx=7)
         self.button(row, 'settings.copy', self.copy_command).pack(side='left')
-        self.label(frame, 'settings.safety', wraplength=1050).grid(row=10, column=0, columnspan=3, sticky='w', pady=(6, 12))
-        advanced = ttk.LabelFrame(frame, text=self.t('settings.advanced'), padding=10);advanced.grid(row=11, column=0, columnspan=3, sticky='ew', pady=5)
+        self.label(frame, 'settings.safety', wraplength=1050).grid(row=6, column=0, columnspan=3, sticky='w', pady=(6, 12))
+        advanced = ttk.LabelFrame(frame, text=self.t('settings.advanced'), padding=10);advanced.grid(row=7, column=0, columnspan=3, sticky='ew', pady=5)
         self._text_widgets.append((advanced, 'settings.advanced'))
-        self.label(advanced, 'settings.axes_title').grid(row=0, column=0, columnspan=4, sticky='w', pady=(0, 6))
+        advanced_fields = (('ffb_max_strength', 'settings.maximum'), ('ffb_polarity', 'settings.polarity'),
+                           ('ffb_slew_rate', 'settings.slew'), ('ffb_seconds', 'settings.duration'))
+        for column, (name, key) in enumerate(advanced_fields):
+            self.label(advanced, key).grid(row=0, column=column, sticky='w', padx=5, pady=(0, 4))
+            self.form[name] = self._variable()
+            ttk.Entry(advanced, textvariable=self.form[name], width=15).grid(row=1, column=column, sticky='we', padx=5)
+        self.label(advanced, 'settings.axes_title').grid(row=2, column=0, columnspan=4, sticky='w', pady=(14, 6))
         for col, (name, key) in enumerate((('steering', 'settings.steering'), ('accelerator', 'settings.accelerator'), ('brake', 'settings.brake'))):
-            cell = ttk.Frame(advanced);cell.grid(row=1, column=col, padx=5, sticky='w')
+            cell = ttk.Frame(advanced);cell.grid(row=3, column=col, padx=5, sticky='w')
             self.label(cell, key).pack(side='left')
             source, inverse = self._variable(), self._variable(False, boolean=True)
             self.axis_form[name] = source, inverse
             ttk.Combobox(cell, textvariable=source, values=('ABS_X', 'ABS_Y', 'ABS_Z'), state='readonly', width=8).pack(side='left', padx=4)
             self.checkbutton(cell, 'settings.invert', inverse, self.update_dirty).pack(side='left')
-        self.button(advanced, 'settings.apply_axes', self.apply_axes).grid(row=1, column=3, padx=8)
+        self.button(advanced, 'settings.apply_axes', self.apply_axes).grid(row=3, column=3, padx=8)
         self.form['gas_axis'], self.form['invert_gas'] = self._variable(), self._variable(False, boolean=True)
-        self.label(advanced, 'settings.gas_channel').grid(row=2, column=0, sticky='e', pady=(10, 0))
-        ttk.Combobox(advanced, textvariable=self.form['gas_axis'], values=('y', 'z', 'both'), state='readonly', width=8).grid(row=2, column=1, sticky='w', pady=(10, 0))
-        self.checkbutton(advanced, 'settings.extra_invert', self.form['invert_gas'], self.update_dirty).grid(row=2, column=2, columnspan=2, sticky='w', pady=(10, 0))
+        self.label(advanced, 'settings.gas_channel').grid(row=4, column=0, sticky='e', pady=(10, 0))
+        ttk.Combobox(advanced, textvariable=self.form['gas_axis'], values=('y', 'z', 'both'), state='readonly', width=8).grid(row=4, column=1, sticky='w', pady=(10, 0))
+        self.checkbutton(advanced, 'settings.extra_invert', self.form['invert_gas'], self.update_dirty).grid(row=4, column=2, columnspan=2, sticky='w', pady=(10, 0))
         for name in ('gas_axis',):
             self.form[name].trace_add('write', lambda *_: self.update_dirty())
         frame.columnconfigure(2, weight=1)

@@ -143,3 +143,15 @@ See [known limitations](docs/LIMITATIONS.md) for the release checklist and valid
 ## License and attribution
 
 The code is licensed under GPL-2.0-only; see [LICENSE](LICENSE). The original wheel illustrations are CC0-1.0; their provenance is documented in [asset notes](src/dfgt_bridge/assets/README.md). The project is not affiliated with Logitech.
+
+⚠️ Important disclaimer:
+
+This is a personal project that I developed and tested on my own setup. It works for me, but I cannot guarantee that it will work on your system or hardware.
+The software is provided AS IS, without any warranty of any kind.
+Use it entirely at your own risk. I take no responsibility for any damage to your hardware, software, operating system, or any other issues that may arise from using this project.
+Force Feedback involves physical motors, so please be especially careful when testing it.
+Compatibility with other Linux distributions, games, and hardware configurations has not been verified.
+I'm simply sharing something that worked for me in the hope that it might help other DFGT owners.
+Feedback and issue reports are welcome!
+
+Happy racing!

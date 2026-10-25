@@ -205,3 +205,12 @@ class GUITests(unittest.TestCase):
         self.popen.assert_not_called()
         self.factory.assert_not_called()
         self.assertTrue(self.root.destroyed)
+
+    def test_general_autostart_preference_and_service_status_do_not_start_motor(self):
+        self.app.auto_start.set(True);self.app.set_auto_start()
+        self.assertTrue(self.app.integration.enabled())
+        client=Mock();client.request.return_value=dict(ok=True,state='ready',physical_ready=True)
+        with patch.object(gui,'ControlClient',return_value=client):self.app.check_service()
+        self.assertIn('[PRONTO]',self.app.integration_state.get())
+        client.request.assert_called_once_with('status');client.close.assert_called_once()
+        self.popen.assert_not_called();self.factory.assert_not_called()

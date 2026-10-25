@@ -18,6 +18,8 @@ from .mapping_editor import MappingEditor, MappingConflict
 from .input.mapping import TARGET_NAMES, PRESETS, source_name
 from .input.physical_wheel import PhysicalWheel, SOURCE
 from .wheel_art import WheelArt
+from .steam_launcher import IntegrationSettings
+from .steam_protocol import ControlClient, SOCKET
 
 
 def runner_command(profiles_file, profile='dirt5', source=SOURCE, *, physical=False, elevated=False):
@@ -53,6 +55,16 @@ class BridgeGUI:
         ttk.Button(bar, text='Desfazer', command=lambda: self.history(False)).pack(side='left')
         ttk.Button(bar, text='Refazer', command=lambda: self.history(True)).pack(side='left', padx=6)
         self.tabs = ttk.Notebook(root); self.tabs.pack(fill='both', expand=True, padx=8)
+        general = ttk.Frame(self.tabs, padding=12)
+        self.tabs.add(general, text='Geral')
+        self.integration = IntegrationSettings(store.path.with_name('integration.json'))
+        self.auto_start = tk.BooleanVar(value=self.integration.enabled())
+        self.integration_state = tk.StringVar(value='Serviço instalado' if Path('/var/lib/dfgt-bridge/install.json').is_file() else 'Serviço não instalado; execute install.sh uma vez')
+        ttk.Checkbutton(general, text='Iniciar automaticamente com o jogo', variable=self.auto_start,
+                        command=self.set_auto_start).pack(anchor='w', pady=10)
+        ttk.Label(general, textvariable=self.integration_state, wraplength=1000).pack(anchor='w')
+        ttk.Button(general, text='Consultar instalação, serviço e prontidão', command=self.check_service).pack(anchor='w', pady=10)
+        ttk.Label(general, text='Após instalar, configure a Launch Option mostrada pelo instalador.\nA GUI pode ser fechada; o launcher Steam mantém a sessão. Nenhum teste de motor é executado aqui.').pack(anchor='w')
         setup = ttk.Frame(self.tabs, padding=12)
         mapping = ttk.Frame(self.tabs, padding=6)
         self.tabs.add(setup, text='Perfil e FFB')
@@ -154,6 +166,24 @@ class BridgeGUI:
     def error(self, exc):
         self.status.set(str(exc))
         messagebox.showerror('DFGT Bridge', str(exc), parent=self.root)
+
+    def set_auto_start(self):
+        try:
+            self.integration.save(self.auto_start.get())
+            self.integration_state.set('Preferência salva para próximas partidas. A sessão atual não muda; F9/Steam Parar interrompem. Configure a Launch Option manualmente.')
+        except (OSError, ValueError) as exc:
+            self.error(exc)
+
+    def check_service(self):
+        try:
+            client = ControlClient(timeout=.5)
+            try: value = client.request('status')
+            finally: client.close()
+            self.integration_state.set('Instalado · serviço respondendo · estado: '+value['state']+
+                                       (' · [PRONTO]' if value['state'] == 'ready' else '')+
+                                       (' · '+str(value['error']) if value.get('error') else ''))
+        except (OSError, EOFError, RuntimeError, ValueError) as exc:
+            self.integration_state.set('Serviço indisponível: '+str(exc)+' · socket '+SOCKET)
 
     def sync_form(self):
         profile = self.editor.profile

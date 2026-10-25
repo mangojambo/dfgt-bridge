@@ -1,5 +1,7 @@
 # Plano de conexão à baseline v0.8
 
+**Estado atual (2026-10-25):** defaults aprovados 100%/100%, −1, slew 327670 e duração ilimitada, com F9/watchdog preservados. GUI de botões/eixos e perfis compartilhados com CLI implementados; 415 testes offline passam. Validação visual no SteamOS, sentido real do dial e navegação no jogo permanecem manuais. Ver [PROFILES_AND_MAPPING.md](PROFILES_AND_MAPPING.md). As etapas seguintes abaixo são registros históricos.
+
 Estado mais recente: o operador ensaiou 5% e 10%. A faixa física agora é 0..100%, com slew configurável e diagnóstico de perdas; 375 testes offline passam. A prioridade é conferir intensidade, FF_GAIN e magnitude EVDEV antes de avaliar fidelidade. Auditoria e próximo comando: [FFB_INTENSITY.md](FFB_INTENSITY.md).
 
 A regressão de enumeração foi corrigida: a associação automática PIDFF omitida na refatoração foi restaurada com propriedade do nó e prontidão driver/EVDEV/FF. A saída física só inicia depois dessa validação. São 346 testes offline passando; nenhum bind real ou motor foi executado. A próxima tarefa é conferir reconhecimento no SteamOS em modo passivo. Consulte [PID_BINDING.md](PID_BINDING.md), inclusive a limitação global de `new_id`.

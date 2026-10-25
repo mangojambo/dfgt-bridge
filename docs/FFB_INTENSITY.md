@@ -2,11 +2,11 @@
 
 ## Resultado
 
-O operador relatou força praticamente imperceptível nos ensaios de 5% e 10%. A faixa física agora aceita **0 a 100%** na inicialização e durante a execução, inclusive máximo zero. Os padrões continuam 10% inicial e máximo 20%. A intensidade inicial não pode exceder o máximo configurado. F7/F8 ajustam 5 pontos percentuais, limitados a zero e ao máximo escolhido. O máximo não é multiplicado novamente como ganho.
+O operador relatou força praticamente imperceptível nos ensaios de 5% e 10%. A faixa física agora aceita **0 a 100%** na inicialização e durante a execução, inclusive máximo zero. Os defaults oficiais foram atualizados para 100%/100%, polaridade −1, slew 327670 e duração ilimitada; veja [PROFILES_AND_MAPPING.md](PROFILES_AND_MAPPING.md). A intensidade inicial não pode exceder o máximo configurado. F7/F8 ajustam 5 pontos percentuais, limitados a zero e ao máximo escolhido. O máximo não é multiplicado novamente como ganho.
 
 Não foi acrescentado boost. `--ffb-strength 100 --ffb-max-strength 100` aplica ganho de usuário 1,0 e permite nível Constant até 32767. O backend aceita o intervalo signed nativo −32768..32767; o mixer existente mantém seu teto simétrico −32767..32767. Essa diferença de um LSB no extremo negativo não reduz a escala positiva nem muda o nível mínimo de oito bits no caminho Logitech auditado.
 
-375 testes passam, sem falhas esperadas ou ignorados. O teste integrado percorre relatórios HID PID, renderer, supervisor e ABI EVDEV simulada: envia 32767 com direção `0x4000` e `FF_GAIN=65535`, embora o mock principal continue em 20%. Todos os testes bloquearam aberturas de dispositivos reais. Nenhum motor foi acionado pelo agente, nenhum driver foi carregado/instalado ou alterado e nenhum push foi feito.
+A etapa desta auditoria tinha 375 testes; o estado atual tem 415 passando, sem falhas esperadas ou ignorados. O teste integrado percorre relatórios HID PID, renderer, supervisor e ABI EVDEV simulada: envia 32767 com direção `0x4000` e `FF_GAIN=65535`, embora o mock principal continue em 20%. Todos os testes bloquearam aberturas de dispositivos reais. Nenhum motor foi acionado pelo agente, nenhum driver foi carregado/instalado ou alterado e nenhum push foi feito.
 
 ## Onde a intensidade diminui
 
@@ -17,7 +17,7 @@ Não foi acrescentado boost. `--ffb-strength 100 --ffb-max-strength 100` aplica 
 | Mock principal | O padrão de 20% afeta somente a simulação. `PhysicalClient.publish()` envia os componentes anteriores a esse ganho/slew, não `final_force`. O teste integrado comprova essa separação. |
 | Mixer físico | Aplica uma vez `g = round(32767 × intensidade / 100) / 32767`, depois limita a `±round(32767 × intensidade / 100)`. Boost e ganho periódico são 1; reserva condicional é zero. |
 | Máximo configurado | Restringe a posição do controle de intensidade; não constitui outro multiplicador. A antiga restrição de 30% no supervisor e a de 70% na política compartilhada foram removidas. |
-| Slew | Estava fixo em 16383,5 unidades/s: aproximadamente 2 s de zero ao máximo e 4 s para inverter os extremos. Atenua oscilações rápidas, mesmo quando o teto permite força maior. Agora é explícito/configurável por `--ffb-slew-rate`. O padrão conservador permanece, mas não há teto de 32767 unidades/s para essa configuração. |
+| Slew | Estava fixo em 16383,5 unidades/s: aproximadamente 2 s de zero ao máximo e 4 s para inverter os extremos. Atenua oscilações rápidas, mesmo quando o teto permite força maior. Agora é explícito/configurável por `--ffb-slew-rate`. O padrão atual é 327670 unidades/s; não há teto de 32767 unidades/s para essa configuração. |
 | Taxa de saída | Atualizações normais continuam em até 45 Hz. Zero/reduções/paradas têm prioridade. Não há recuperação de comandos antigos em rajadas. Isso limita resolução temporal, não a amplitude estável permitida. |
 | Supervisor | Só cálculos novos e válidos autorizam saída. Watchdog de 100 ms, perda do jogo, emergência e prazo da sessão podem zerar a força. Não dependem de novos relatórios PID para manter um efeito infinito legítimo. |
 | EVDEV | Um slot FF_CONSTANT reutilizado, nível signed sem conversão adicional, direção fixa `0x4000`. FF_GAIN recebe 65535 ao iniciar reprodução; stop/cleanup usam ganho zero. Não aplica o percentual do usuário outra vez em FF_GAIN. |
@@ -83,11 +83,11 @@ cd /home/deck/dfgt-bridge
 sudo /usr/bin/python3 -B scripts/run-passive.py \
   --identity g29 --auto-pidff --gas-axis y --enable-ffb \
   --ffb-strength 100 --ffb-max-strength 100 \
-  --ffb-slew-rate 327670 --ffb-seconds 120 \
+  --ffb-polarity -1 --ffb-slew-rate 327670 --ffb-seconds unlimited \
   --capture "captures/dirt5-100-$(date +%Y%m%d-%H%M%S).jsonl.gz"
 ```
 
-O slew explícito permite aproximadamente 0,1 s de zero à escala máxima e 0,2 s entre extremos, sem boost. Zero e emergência não aguardam essa rampa. A sessão para 120 s depois da primeira saída ativa, incluindo menus e pausas nesse prazo; `--ffb-seconds` continua configurável em 30..240 s. F7/F8 percorrem 0..100% neste comando. F9/`ffb-stop` desligam e exigem `ffb-arm` explícito e cálculo novo; não alternam automaticamente.
+O slew explícito permite aproximadamente 0,1 s de zero à escala máxima e 0,2 s entre extremos, sem boost. Zero e emergência não aguardam essa rampa. A sessão normal é ilimitada; se o operador escolher `--ffb-seconds 30..240`, o prazo conta desde a primeira saída ativa, incluindo menus e pausas. F7/F8 percorrem 0..100% neste comando. F9/`ffb-stop` desligam e exigem `ffb-arm` explícito e cálculo novo; não alternam automaticamente.
 
 O physical-trace é criado automaticamente com o nome completo da captura acrescido de `.ffb.jsonl.gz`. Replay, sem dispositivos:
 

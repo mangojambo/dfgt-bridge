@@ -1,5 +1,7 @@
 # FFB EVDEV supervisionado — controles, proteção e diagnóstico
 
+**Defaults oficiais atualizados:** 100%/100%, polaridade −1, slew 327670 e duração ilimitada no perfil normal. CLI e GUI compartilham perfis; entrada Y/G29/PIDFF. Esta decisão substitui as recomendações iniciais de ensaio conservador, que são históricas. Segurança e modo físico explícito permanecem. Ver [PROFILES_AND_MAPPING.md](PROFILES_AND_MAPPING.md).
+
 O acelerador em Y foi confirmado pelo operador. Esta etapa adiciona uma opção física ao runner, conservando o caminho passivo como padrão e sem modificar descritor, entrada, referências ou launchers. Durante o desenvolvimento foram usados somente mocks, relógios simulados e replay; nenhum motor foi acionado, driver instalado ou configuração do SteamOS alterada.
 
 A inicialização exige associação PIDFF, entrada EVDEV virtual e FF_CONSTANT antes de mostrar `[PRONTO]` ou criar o processo de saída física. A associação automática e os limites da regra dinâmica estão em [PID_BINDING.md](PID_BINDING.md). O operador já testou 5% e 10% e relatou pouca força. Agora intensidade e máximo aceitam 0..100%, sem boost; veja [FFB_INTENSITY.md](FFB_INTENSITY.md) para a auditoria, o efeito do timeout de 30 s nos traces reais e o comando de 100% com slew explícito.
@@ -18,7 +20,8 @@ Modo físico supervisionado, para quando o operador decidir realizar o ensaio:
 ```sh
 sudo /usr/bin/python3 -B scripts/run-passive.py \
   --enable-ffb --gas-axis y \
-  --ffb-strength 10 --ffb-max-strength 20 --ffb-seconds 120 \
+  --ffb-strength 100 --ffb-max-strength 100 --ffb-polarity -1 \
+  --ffb-slew-rate 327670 --ffb-seconds unlimited \
   --capture captures/dirt5-ffb-01.jsonl.gz \
   --physical-trace captures/dirt5-ffb-policy-01.jsonl.gz \
   --proton 'INFORMAR VERSÃO EXATA' \
@@ -33,7 +36,7 @@ Python 3.10+ e o suporte EVDEV/UHID já existente são suficientes; não foi adi
 
 O processo principal continua usando `PassiveSession`: entrada v0.8 → transporte PID → pool/timeline → renderer → política mock de referência. Nenhum backend físico entra em `OfflineSession`. A captura principal conserva seu formato e seus resultados determinísticos.
 
-Somente com `--enable-ffb`, `PhysicalClient` cria por `spawn` outro processo, que possui o fd de saída EVDEV e lê os teclados. Recebe os componentes **antes do ganho/teto do mock**, calculados pelo mesmo renderer; aplica a política `ConstantOutput` do núcleo com o perfil físico, e envia um único Constant ao DFGT. O ganho mock padrão de 20% não é multiplicado pelo ganho físico de 10%.
+Somente com `--enable-ffb`, `PhysicalClient` cria por `spawn` outro processo, que possui o fd de saída EVDEV e lê os teclados. Recebe os componentes **antes do ganho/teto do mock**, calculados pelo mesmo renderer; aplica a política `ConstantOutput` do núcleo com o perfil físico, e envia um único Constant ao DFGT. O ganho mock padrão de 20% não é multiplicado pelo ganho físico; o perfil normal físico usa 100%.
 
 IPC usa SOCK_SEQPACKET não bloqueante e crédito/ACK: no máximo **um frame em trânsito e um último valor local**, substituído por cálculos recentes. Não há fila de forças antigas. Gerações e timestamps são monotônicos; o consumidor não aceita a mesma geração ou o mesmo instante de cálculo como renovação válida. Mailboxes de status/comando são limitadas a 4096 bytes e usam seqlock sem espera no alvo x86_64; um escritor parado no meio da atualização não prende o leitor.
 
@@ -55,15 +58,15 @@ Referências de implementação: [UAPI input.h](https://github.com/torvalds/linu
 
 | Proteção | Política |
 |---|---|
-| Intensidade inicial | 10% padrão; aceita 0..100%, sem exceder o máximo configurado |
-| Teto ajustável | 20% padrão; configurável 0..100%; F7/F8 ajustam 5 pontos dentro de 0..máximo |
-| Slew físico | `--ffb-slew-rate`: finito/positivo, padrão 16383,5 unidades/s; 327670 permite escala completa em aproximadamente 0,1 s; dt limitado a 50 ms |
+| Intensidade inicial | **100% padrão oficial**; aceita 0..100%, sem exceder o máximo configurado |
+| Teto ajustável | **100% padrão oficial**; configurável 0..100%; F7/F8 ajustam 5 pontos dentro de 0..máximo |
+| Slew físico | `--ffb-slew-rate`: padrão **327670 unidades/s**; escala completa em aproximadamente 0,1 s; dt limitado a 50 ms |
 | Prioridade | Zero, redução de teto e parada não aguardam slew/rate gate |
 | Atualização normal | No máximo 45 Hz; paradas e reduções de segurança podem antecipar |
 | Idade de cálculo | 100 ms sem avanço → stop e latch; chegada de PID não é heartbeat |
 | Duração EVDEV | Cada replay tem no máximo 160 ms; renovar exige cálculo novo e recente |
 | Supervisor | Poll nominal de 5 ms; processo principal detecta status parado por 250 ms e encerra o filho |
-| Sessão física | 120 s após primeira força por padrão, configurável 30..240 s; expiração exige novo runner |
+| Sessão física | **Ilimitada no perfil normal**; prazo 30..240 s somente por opção explícita; watchdog independente permanece |
 | Jogo | Aguardar processo DiRT5.exe; saída ou troca de identidade PID/starttime → stop e latch |
 
 O supervisor testa idade antes de operações EVDEV, inclusive entre upload e play. Um upload que retorna tarde não autoriza play antigo. O poll do watchdog **nunca** renova força: só um frame novo do renderer pode chegar a `ConstantOutput.tick()`. Efeitos HID infinitos continuam válidos enquanto o renderer avança, mesmo sem novos relatórios do jogo.
@@ -125,16 +128,16 @@ O diagnóstico `force_pipeline` discrimina ganho, teto, slew, rate gate e perdas
 
 ## Validação realizada e limitações
 
-**375 testes passando, zero falhas esperadas e zero ignorados**, com `scripts/test-offline.py` bloqueando opens reais de UHID/input/hidraw/USB. Cobrem ABI EVDEV fake, identidade/capacidades, único slot, intensidade, polaridade, slew, F9, zero, watchdog, comandos pendentes, processo do jogo, desconexão/exceções, teclado e replay pareado. Nenhum subprocesso EVDEV real ou ensaio de motor foi executado automaticamente; os testes físicos de 5% e 10% foram realizados pelo operador. Ganho/autocenter globais, exclusividade efetiva, USB, temporização kernel e teclas com o jogo em primeiro plano precisam de validação pelo operador.
+**415 testes passando, zero falhas esperadas e zero ignorados**, com `scripts/test-offline.py` bloqueando opens reais de UHID/input/hidraw/USB. Cobrem ABI EVDEV fake, identidade/capacidades, único slot, intensidade, polaridade, slew, F9, zero, watchdog, comandos pendentes, processo do jogo, desconexão/exceções, teclado e replay pareado. Nenhum subprocesso EVDEV real ou ensaio de motor foi executado automaticamente; os testes físicos de 5% e 10% foram realizados pelo operador. Ganho/autocenter globais, exclusividade efetiva, USB, temporização kernel e teclas com o jogo em primeiro plano precisam de validação pelo operador.
 
 As três capturas reais existentes passaram novamente em replay completo com equivalência semântica: 35.723, 37.280 e 54.648 ações. A terceira, `dirt5-y-20261024-144639.jsonl.gz`, contém 20.501 quadros com Y 0..255 e zero divergências entre ABS_Y e HID Y. Seu `mock_history_dropped=2216` refere-se ao histórico diagnóstico limitado a 4096 ações, não perda de comandos; a captura completa e seu replay permanecem íntegros. O relato de que o acelerador funcionou concorda com essa telemetria.
 
-## Primeiro ensaio de polaridade e intensidade — manual
+## Conferência manual do perfil normal
 
-1. Deixar somente este runner como escritor de FFB do DFGT, selecionar o G29 virtual no jogo e ter acesso a F9 e ao corte de alimentação. Confirmar os controles primeiro em modo passivo.
-2. Para o primeiro ensaio, usar o comando físico acima com `--ffb-strength 5 --ffb-max-strength 10 --ffb-seconds 30`. Não há pulsos nem teste autogerado pelo programa; o torque só vem dos efeitos do jogo enquanto seu processo estiver ativo.
-3. Começar numa situação de força previsível, registrar pista/ajustes e deslocar pouco o aro. Conferir se um efeito restaurador puxa para o centro. Se aumentar o deslocamento ou houver comportamento inesperado, F9, encerrar e analisar o trace. Não trocar sinais com o aro sob carga.
-4. Se a polaridade estiver invertida, reiniciar um novo ensaio a 5% com `--ffb-polarity -1`, sem alterar coeficientes PID ou descritor. A polaridade mecânica correta ainda não foi medida nesta entrega.
-5. Depois de confirmar o sentido, testar F7, F8 até 10%, F9, permanência desligada, reativação explícita, Pause/Disable/Stop e saída do jogo. Verificar zero/erase no trace e ausência de força residual. Aumentar o teto de sessão somente após revisar esses resultados.
+1. Conferir o perfil carregado: 100%/100%, polaridade −1, slew 327670 e `unlimited`. Não há redução automática de intensidade. Esperar `[PRONTO]` e selecionar o G29 no DiRT 5.
+2. Usar o monitor readonly da GUI para conferir L1/R1, manche, D-pad e controles especiais. Códigos 300/301 compartilhados não são separados artificialmente; confirmar A/B do dial.
+3. Iniciar saída somente por `--enable-ffb` ou pelo botão físico explícito da GUI. O programa não gera pulsos de teste; a força vem dos efeitos do jogo.
+4. Conferir F7/F8 em 0..100%, F9, permanência desligada, `ffb-arm` explícito, Pause/Disable/Stop e saída do jogo. Verificar zero/erase e ausência de força residual. F10 registra nível, ganho e perdas; valores são comandos, não leitura de torque.
+5. Se precisar de coleta, escolher `--capture` explicitamente; nenhum arquivo grande é criado por padrão. O workflow de perfis e GUI está em [PROFILES_AND_MAPPING.md](PROFILES_AND_MAPPING.md).
 
-Não executar automaticamente os scripts históricos de pulsos. O ensaio inicial acima é histórico; a tarefa atual prioriza intensidade física e diagnóstico conforme [FFB_INTENSITY.md](FFB_INTENSITY.md). Não instalar drivers ou trocar para comandos Logitech proprietários.
+Não executar automaticamente os scripts históricos de pulsos. Não instalar drivers ou trocar para comandos Logitech proprietários. A validação física e visual é feita pelo operador; os testes automatizados permanecem offline.

@@ -189,3 +189,18 @@ Estado: **375 testes passando, zero falhas esperadas e zero ignorados**, com rel
 Os pares reais `dirt5-fisico/policy-20261024-211132` e `...223235` passaram no replay completo correlacionado: 35691/11992 e 28793/10116 steps/frames físicos. Tinham prazo configurado de 30 s e atingiram picos de 1621 e 3147. Reprocessar o ensaio de 10% a 100% com slew de 327670/s alcançou 32767 no mock, em vez de 26172 com o slew antigo. A desmontagem somente leitura dos módulos instalados confirmou o deslocamento de resolução em ff-memless e o comando de oito bits do lg4ff; não confirmou torque, alimentação ou exclusividade de outros escritores.
 
 Implementação: `6beb151` libera a faixa e configura slew; `481464e` acrescenta diagnóstico por etapa e replay compatível; `0052a40` verifica F10 e configuração do processo. Relatório, hashes e comando pronto: [FFB_INTENSITY.md](FFB_INTENSITY.md). A próxima tarefa é o operador conferir força/magnitude/ganho em 100%; fidelidade dos efeitos fica para depois. Nenhum motor, carregamento/instalação de driver, alteração do SteamOS, referência histórica ou launcher foi executado/modificado pelo agente; sem push.
+
+
+## Defaults finais e GUI de mapeamento (2026-10-25)
+
+Defaults oficiais centralizados: **100%/máximo 100%, polaridade −1, slew 327670 e duração ilimitada**, acelerador Y, G29 e auto PIDFF. Não foi imposto outro teto inferior. O opt-in físico continua obrigatório. A sessão ilimitada retira só o timer global; watchdog de cálculo e prazo EVDEV finito permanecem independentes, assim como F9, falhas e cleanup.
+
+`input/mapping.py` agrega borboletas/manche em L1/R1, +/− em hat, buzina em + virtual, clique em Enter, dial nos destinos próprios e Guide em PS. Preserva bytes dos controles ordinários e slots adicionais legados; 300/301 compartilhados pelo corpo/manche são declarados como tal. `report()` e descritor não mudaram. A configuração registrada em captura reproduz o mapa exato, sem alterar capturas antigas.
+
+`config.py`/ProfileStore oferece JSON versionado por jogo para CLI/GUI, validação e escrita atômica. `mapping_editor.py` mantém histórico limitado, conflitos explícitos e prévia. `gui.py`, `wheel_art.py` e SVGs originais CC0 implementam vistas lado a lado, hotspots de todos os botões, detecção readonly, pulsos curtos visíveis sem latch, remapeamento/eixos, presets, salvar/carregar e desfazer/refazer. A GUI só inicia o runner por ação explícita; EOF de seu canal encerra o filho. Nenhuma captura grande é criada por padrão.
+
+**415 testes passando**, sem falhas esperadas/ignorados, com dispositivos/widgets/processos falsos e audit hook. Preservamos os vetores de ensaios anteriores com configurações explícitas em seus fixtures; os defaults novos têm testes próprios, inclusive ABI EVDEV signed invertida e mais de 500 s simulados com watchdog. Dois pares reais antigos continuaram completos no replay correlacionado. Não houve motor, drivers ou configuração do SteamOS executados/alterados pelo agente; sem push.
+
+Os SVGs foram renderizados offline. Não houve conexão ao display :0 para validar a janela real; Tk callbacks foram exercitados com simuladores. O build isolado em /tmp encontrou setuptools ausente e não instalou nada. A validação interativa no SteamOS, sentido A/B do dial e navegação das abas pelo L1/R1 permanecem tarefas do operador, sem execução física automática. Recursos de pacote/entrypoints estão declarados em pyproject.toml; execução pelo fonte permanece disponível.
+
+Commits: `4c35cbd` mapper/agregação e replay de entrada; `0f22256` perfis/defaults/duração; `8ccad90` GUI/arte/controles; `8f76df2` pulsos curtos. Comandos e limites: [PROFILES_AND_MAPPING.md](PROFILES_AND_MAPPING.md).

@@ -105,4 +105,3 @@ class MappingTests(unittest.TestCase):
             self.assertTrue(replay(path)['complete'])
             rows = [json.loads(s) for s in path.read_text().splitlines()]
             self.assertEqual(rows[1]['data']['state'][5], [301, 707])
-

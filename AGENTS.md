@@ -15,3 +15,5 @@
 - Neste ambiente `.git/` está montado somente leitura. Use `scripts/git-project.sh` para o repositório local em `.git-local/`; não altere a montagem protegida nem configurações Git globais.
 
 Validação offline: `python3 -B -m unittest discover -s tests -v`.
+
+Defaults oficiais aprovados: FFB 100%/máximo 100%, polaridade −1, slew 327670, duração unlimited no perfil normal, acelerador Y, identidade G29 e auto PIDFF. Não reintroduza defaults menores nem timeout global oculto; preserve F9, watchdog e o opt-in físico. Borboletas 293/292 e manche 301/300 usam L1/R1 no preset padrão, nunca X/Quadrado. Códigos físicos compartilhados não podem ser distinguidos artificialmente. GUI e CLI devem usar o mesmo ProfileStore; abrir/editar a GUI não pode ativar motor ou criar captura.

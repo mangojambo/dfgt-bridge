@@ -1,6 +1,6 @@
 # DFGT Bridge
 
-Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) como volante G29 virtual (`046d:c24f`) no SteamOS/DiRT 5. Os controles da v0.8 são a baseline funcional; o FFB está em desenvolvimento incremental e ainda não foi validado fisicamente nesta fase.
+Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) como volante G29 virtual (`046d:c24f`) no SteamOS/DiRT 5. Os controles da v0.8 são a baseline funcional; o FFB está em desenvolvimento incremental. O operador testou 5% e 10%; a resposta física na faixa completa ainda precisa ser confirmada.
 
 ## Organização
 
@@ -16,7 +16,7 @@ captures/             capturas locais e logs, ignorados pelo Git
 docs/                 auditoria, manifesto, mapa de movimentos e desenvolvimento
 ```
 
-A entrada e o runner foram implementados sem alterar as referências. O modo passivo continua padrão; o backend EVDEV supervisionado está implementado e exige `--enable-ffb`, mas ainda não foi ensaiado no motor. Não há módulos vazios antecipando abstrações futuras.
+A entrada e o runner foram implementados sem alterar as referências. O modo passivo continua padrão; o backend EVDEV supervisionado exige `--enable-ffb` e já teve ensaios de baixa intensidade relatados pelo operador. A faixa completa e o diagnóstico estão em [FFB_INTENSITY.md](docs/FFB_INTENSITY.md). Não há módulos vazios antecipando abstrações futuras.
 
 ## Testes e execução segura
 
@@ -26,7 +26,7 @@ Só é necessário Python 3.10+ para os testes offline; não instale `evdev` par
 python3 -B -m unittest discover -s tests -v
 ```
 
-A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **346 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
+A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **375 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
 
 Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. `scripts/run-passive.py` cria o G29 virtual com controles da v0.8 e, por padrão, calcula FFB exclusivamente no mock. A saída física opcional usa outro processo, teto inicial de 10%, máximo padrão de 20%, watchdog de cálculo, supervisão do jogo e F7/F8/F9/F10 globais. `scripts/replay-capture.py` valida capturas offline e o trace físico pareado, sempre em mock. Os entrypoints inserem `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
 
@@ -34,7 +34,7 @@ Comandos para execução passiva, captura completa, marcação de fases e replay
 
 As [duas capturas reais fornecidas pelo operador](docs/CAPTURE_COMPARISON_20261024.md) passaram no replay offline. O CLI agora usa acelerador em **Y por padrão**, reproduzindo a configuração funcional v0.8 (`--gas-axis y`); o comando anterior sem essa opção enviava o pedal em Z e deixava Y em 255. O descritor e a matemática FFB permanecem intactos.
 
-O operador confirmou o acelerador corrigido. A terceira captura, `dirt5-y-20261024-144639.jsonl.gz`, também passou em replay completo: 20.501 quadros, HID Y 0..255 e zero diferenças entre ABS_Y e HID Y. Os comandos de modo físico, seus limites, parada independente e procedimento manual de polaridade estão em [SUPERVISED_FFB.md](docs/SUPERVISED_FFB.md). Nenhum teste real de motor foi executado nesta implementação.
+O operador confirmou o acelerador corrigido. A terceira captura, `dirt5-y-20261024-144639.jsonl.gz`, também passou em replay completo: 20.501 quadros, HID Y 0..255 e zero diferenças entre ABS_Y e HID Y. Os comandos de modo físico, parada independente e procedimento manual de polaridade estão em [SUPERVISED_FFB.md](docs/SUPERVISED_FFB.md). O operador posteriormente relatou força fraca a 5% e 10%; a auditoria e a configuração explícita de 100% estão em [FFB_INTENSITY.md](docs/FFB_INTENSITY.md). Nenhum teste de motor foi executado automaticamente.
 
 A associação automática omitida na refatoração foi restaurada: o runner carrega o PIDFF já instalado quando necessário e só informa `[PRONTO]` após confirmar driver, entrada EVDEV virtual e FF_CONSTANT. Antes disso, a saída física não pode iniciar. A propriedade do nó é conferida por token PHYS; descritor, serial vazio e controles permanecem preservados. O fallback `new_id` é global ao VID/PID e é recusado se houver outro G29. Leia [o diagnóstico e as limitações da associação](docs/PID_BINDING.md) antes do próximo teste passivo.
 
@@ -68,6 +68,7 @@ Fora desta restrição, um clone convencional usa `.git/` normalmente; o wrapper
 - [Associação PIDFF, prontidão e diagnóstico da regressão](docs/PID_BINDING.md)
 - [Comparação das capturas reais e correção do acelerador](docs/CAPTURE_COMPARISON_20261024.md)
 - [FFB EVDEV supervisionado, controles, replay e primeiro ensaio manual](docs/SUPERVISED_FFB.md)
+- [Intensidade 0–100%, perdas, ganho EVDEV e comando de faixa completa](docs/FFB_INTENSITY.md)
 - [Regras para agentes e colaboradores](AGENTS.md)
 
 Testes de motor, alterações de drivers físicos, instalação/configuração persistente e avaliação de comandos proprietários Logitech dependem de aprovação separada.

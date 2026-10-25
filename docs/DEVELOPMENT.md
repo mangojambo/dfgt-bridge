@@ -174,3 +174,18 @@ Commits da implementação: `2f0828d` propriedade PHYS sem mudar serial; `d9ff56
 Nenhum módulo foi carregado, nenhum bind real foi escrito e nenhum motor foi acionado. O módulo PIDFF instalado e seu estado não registrado foram inspecionados somente em leitura. A API HID exige fallback global por VID/PID quando falta uma regra; não permite um override por instância. Outro G29 presente bloqueia esse fallback, mas a regra pode afetar G29 conectado posteriormente e permanece até unload/reboot. Não há instalação ou configuração persistente. Diagnóstico, fontes e comando passivo preparado: [PID_BINDING.md](PID_BINDING.md).
 
 Próxima tarefa: operador confirmar enumeração, controles e menu FFB no SteamOS em modo passivo antes de retomar o ensaio físico supervisionado. Não houve push.
+
+
+## Intensidade física 0..100% e auditoria de atenuação
+
+O operador realizou ensaios reais de 5% e 10% e relatou força quase imperceptível. A faixa agora aceita 0..100% em CLI, política supervisionada e IPC, inclusive máximo zero. O backend valida nível signed nativo e a ABI é testada até os extremos. F7/F8 continuam em passos de 5%, limitados ao máximo explicitamente escolhido. Padrões conservadores de 10%/20% foram mantidos; as antigas restrições de 30% e 70% foram removidas.
+
+O ganho do mock principal não entra no caminho físico: um teste integrado HID→renderer→supervisor→ABI EVDEV comprova nível 32767 e FF_GAIN=65535 com o mock ainda a 20%. Não foi adicionado boost. O slew de 16383,5 unidades/s era fixo e atenuava transientes; agora é configurável sem teto artificial por `--ffb-slew-rate`. O comando de diagnóstico usa 327670 unidades/s.
+
+F10/status/trace discriminam intensidade, ganho efetivo, teto, força antes/depois das proteções, perdas relativas, direção, updates/s e o ganho/nível realmente comandados pelo backend EVDEV. Os novos traces v2 exigem diagnóstico equivalente no replay; v1 conserva a comparação de todos os campos originais. O histórico temporal de diagnóstico é limitado e não forma fila de força.
+
+Estado: **375 testes passando, zero falhas esperadas e zero ignorados**, com relógios/dispositivos falsos e audit hook de abertura de dispositivos. Novos casos cobrem 0, 10, 30, 50, 75, 100%, máximo zero, parâmetros inválidos, ajuste durante execução, F7/F8/F9, zero imediato, slew, F10, magnitude nativa, ausência de ganho duplicado, taxa física e replay de telemetria assinada.
+
+Os pares reais `dirt5-fisico/policy-20261024-211132` e `...223235` passaram no replay completo correlacionado: 35691/11992 e 28793/10116 steps/frames físicos. Tinham prazo configurado de 30 s e atingiram picos de 1621 e 3147. Reprocessar o ensaio de 10% a 100% com slew de 327670/s alcançou 32767 no mock, em vez de 26172 com o slew antigo. A desmontagem somente leitura dos módulos instalados confirmou o deslocamento de resolução em ff-memless e o comando de oito bits do lg4ff; não confirmou torque, alimentação ou exclusividade de outros escritores.
+
+Implementação: `6beb151` libera a faixa e configura slew; `481464e` acrescenta diagnóstico por etapa e replay compatível; `0052a40` verifica F10 e configuração do processo. Relatório, hashes e comando pronto: [FFB_INTENSITY.md](FFB_INTENSITY.md). A próxima tarefa é o operador conferir força/magnitude/ganho em 100%; fidelidade dos efeitos fica para depois. Nenhum motor, carregamento/instalação de driver, alteração do SteamOS, referência histórica ou launcher foi executado/modificado pelo agente; sem push.

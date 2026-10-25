@@ -1,0 +1,141 @@
+{
+  "schema": "dfgt-intensity-audit",
+  "version": 1,
+  "date": "2026-10-24",
+  "motor_executed_by_agent": false,
+  "kernel": "7.2.7-valve2-2-neptune-72-g31504582a073",
+  "module_hashes_sha256": {
+    "hid-logitech.ko.zst": "427c928db46da55461258cfa1392c1bf51e3646c546638e1ed0c87f13821fb79",
+    "ff-memless.ko.zst": "5baf5a5a376a4429aa67df259f4a0e5a0dd77c43380c280ae6948185f0c22a5c"
+  },
+  "module_inspection": "Read-only decompression in /tmp and objdump; no module loading or replacement",
+  "paired_replay": [
+    {
+      "capture": "dirt5-fisico-20261024-211132.jsonl.gz",
+      "sha256": "6d80a648f2ce4a6ca404c20f230dc3feb4cd6cbd838fcf15ea6439d50616ee88",
+      "core_steps": 50193,
+      "complete": true,
+      "physical": {
+        "steps": 35691,
+        "frames": 11992,
+        "verified": true,
+        "complete": true,
+        "core_correlated": true
+      }
+    },
+    {
+      "capture": "dirt5-fisico-20261024-223235.jsonl.gz",
+      "sha256": "8888cdff7471551f6324f2dba92ce85de114bef497c201e22708740a7af1030f",
+      "core_steps": 43482,
+      "complete": true,
+      "physical": {
+        "steps": 28793,
+        "frames": 10116,
+        "verified": true,
+        "complete": true,
+        "core_correlated": true
+      }
+    }
+  ],
+  "comparison": [
+    {
+      "capture": "dirt5-policy-20261024-211132.jsonl.gz",
+      "sha256": "0f8ef53af6ea0231cd940580e9ceaeaac2627eae64cf409a5fba424e62583101",
+      "config": {
+        "maximum": 10,
+        "polarity": 1,
+        "require_game": true,
+        "session_s": 30,
+        "strength": 5
+      },
+      "profiles": [
+        {
+          "profile": "original",
+          "strength": 5,
+          "slew_per_s": 16383.5,
+          "peak_evdev": 1621,
+          "nonzero_frames": 4728,
+          "frames": 11992,
+          "full_scale_frames": 0,
+          "absolute_requested_sum": 2395105.046514476,
+          "absolute_sent_sum": 1068223.0,
+          "strength_actions": 0
+        },
+        {
+          "profile": "100_slow",
+          "strength": 100,
+          "slew_per_s": 16383.5,
+          "peak_evdev": 16599,
+          "nonzero_frames": 5025,
+          "frames": 11992,
+          "full_scale_frames": 0,
+          "absolute_requested_sum": 47912336.42194364,
+          "absolute_sent_sum": 19292708.0,
+          "strength_actions": 0
+        },
+        {
+          "profile": "100_fast",
+          "strength": 100,
+          "slew_per_s": 327670,
+          "peak_evdev": 32426,
+          "nonzero_frames": 5029,
+          "frames": 11992,
+          "full_scale_frames": 0,
+          "absolute_requested_sum": 47912336.42194364,
+          "absolute_sent_sum": 21369904.0,
+          "strength_actions": 0
+        }
+      ]
+    },
+    {
+      "capture": "dirt5-policy-20261024-223235.jsonl.gz",
+      "sha256": "cb5ce2494391647951dc1c4719ba11e7abc740905c88d2f541fd62d82bc138bd",
+      "config": {
+        "maximum": 15,
+        "polarity": 1,
+        "require_game": true,
+        "session_s": 30,
+        "strength": 10
+      },
+      "profiles": [
+        {
+          "profile": "original",
+          "strength": 10,
+          "slew_per_s": 16383.5,
+          "peak_evdev": 3147,
+          "nonzero_frames": 4925,
+          "frames": 10116,
+          "full_scale_frames": 0,
+          "absolute_requested_sum": 4582687.372405423,
+          "absolute_sent_sum": 3126068.0,
+          "strength_actions": 0
+        },
+        {
+          "profile": "100_slow",
+          "strength": 100,
+          "slew_per_s": 16383.5,
+          "peak_evdev": 26172,
+          "nonzero_frames": 4988,
+          "frames": 10116,
+          "full_scale_frames": 0,
+          "absolute_requested_sum": 45822678.404520966,
+          "absolute_sent_sum": 27916760.0,
+          "strength_actions": 0
+        },
+        {
+          "profile": "100_fast",
+          "strength": 100,
+          "slew_per_s": 327670,
+          "peak_evdev": 32767,
+          "nonzero_frames": 4988,
+          "frames": 10116,
+          "full_scale_frames": 12,
+          "absolute_requested_sum": 45822678.404520966,
+          "absolute_sent_sum": 31349142.0,
+          "strength_actions": 0
+        }
+      ]
+    }
+  ],
+  "comparison_scope": "Offline MockBackend with same recorded events/timestamps, preserved game/safety actions; 100% overrides strength only. No strength actions occurred. Timer begins at first nonzero output independently per profile. Sums are unweighted frame magnitudes, not torque or time integrals."
+}

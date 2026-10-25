@@ -1,8 +1,8 @@
-# FFB EVDEV supervisionado — implementado, ainda sem ensaio de motor
+# FFB EVDEV supervisionado — controles, proteção e diagnóstico
 
 O acelerador em Y foi confirmado pelo operador. Esta etapa adiciona uma opção física ao runner, conservando o caminho passivo como padrão e sem modificar descritor, entrada, referências ou launchers. Durante o desenvolvimento foram usados somente mocks, relógios simulados e replay; nenhum motor foi acionado, driver instalado ou configuração do SteamOS alterada.
 
-A inicialização agora exige associação PIDFF, entrada EVDEV virtual e FF_CONSTANT antes de mostrar `[PRONTO]` ou criar o processo de saída física. A associação automática, o módulo existente e os limites da regra dinâmica estão em [PID_BINDING.md](PID_BINDING.md). O próximo teste deve confirmar reconhecimento em modo passivo antes de retomar o ensaio de motor.
+A inicialização exige associação PIDFF, entrada EVDEV virtual e FF_CONSTANT antes de mostrar `[PRONTO]` ou criar o processo de saída física. A associação automática e os limites da regra dinâmica estão em [PID_BINDING.md](PID_BINDING.md). O operador já testou 5% e 10% e relatou pouca força. Agora intensidade e máximo aceitam 0..100%, sem boost; veja [FFB_INTENSITY.md](FFB_INTENSITY.md) para a auditoria, o efeito do timeout de 30 s nos traces reais e o comando de 100% com slew explícito.
 
 ## Comandos preparados
 
@@ -55,9 +55,9 @@ Referências de implementação: [UAPI input.h](https://github.com/torvalds/linu
 
 | Proteção | Política |
 |---|---|
-| Intensidade inicial | 10% padrão; opção inicial 0..10% para ensaios menores |
-| Teto ajustável | 20% padrão; configurável 10..30%; F8 não ultrapassa esse teto |
-| Slew físico | 16383,5 unidades/s, aproximadamente 50% da escala por segundo; dt limitado a 50 ms |
+| Intensidade inicial | 10% padrão; aceita 0..100%, sem exceder o máximo configurado |
+| Teto ajustável | 20% padrão; configurável 0..100%; F7/F8 ajustam 5 pontos dentro de 0..máximo |
+| Slew físico | `--ffb-slew-rate`: finito/positivo, padrão 16383,5 unidades/s; 327670 permite escala completa em aproximadamente 0,1 s; dt limitado a 50 ms |
 | Prioridade | Zero, redução de teto e parada não aguardam slew/rate gate |
 | Atualização normal | No máximo 45 Hz; paradas e reduções de segurança podem antecipar |
 | Idade de cálculo | 100 ms sem avanço → stop e latch; chegada de PID não é heartbeat |
@@ -121,9 +121,11 @@ python3 -B scripts/replay-capture.py captures/dirt5-ffb-01.jsonl.gz \
 
 Com outra revisão dos fontes, adicionar `--verify-compatible`; divergências continuam sendo erro. O replay primeiro confere todos os resultados PID/renderer da captura principal. Depois recria a política supervisionada com MockBackend e relógio gravado, compara todos os snapshots físicos e correlaciona cada frame aos componentes, ganho e efeitos da captura principal. Assim, o trace de outra sessão não passa apenas por ter JSON válido. Footers ausentes permanecem incompletos; uma falha de dispositivo real pode tornar o último trecho não reproduzível e nunca é classificada como ensaio físico bem-sucedido.
 
+O diagnóstico `force_pipeline` discrimina ganho, teto, slew, rate gate e perdas relativas. F10 e o trace também incluem `io.gain_commanded`, `io.level_uploaded`, `io.level_commanded`, latências e taxas de uploads/play. O ganho comandado não é readback de firmware; ver [FFB_INTENSITY.md](FFB_INTENSITY.md).
+
 ## Validação realizada e limitações
 
-**346 testes passando, zero falhas esperadas e zero ignorados**, com `scripts/test-offline.py` bloqueando opens reais de UHID/input/hidraw/USB. Cobrem ABI EVDEV fake, identidade/capacidades, único slot, intensidade, polaridade, slew, F9, zero, watchdog, comandos pendentes, processo do jogo, desconexão/exceções, teclado e replay pareado. Nenhum subprocesso EVDEV real ou ensaio de motor foi executado. Ganho/autocenter globais, exclusividade efetiva, USB, temporização kernel e teclas com o jogo em primeiro plano precisam de validação pelo operador.
+**375 testes passando, zero falhas esperadas e zero ignorados**, com `scripts/test-offline.py` bloqueando opens reais de UHID/input/hidraw/USB. Cobrem ABI EVDEV fake, identidade/capacidades, único slot, intensidade, polaridade, slew, F9, zero, watchdog, comandos pendentes, processo do jogo, desconexão/exceções, teclado e replay pareado. Nenhum subprocesso EVDEV real ou ensaio de motor foi executado automaticamente; os testes físicos de 5% e 10% foram realizados pelo operador. Ganho/autocenter globais, exclusividade efetiva, USB, temporização kernel e teclas com o jogo em primeiro plano precisam de validação pelo operador.
 
 As três capturas reais existentes passaram novamente em replay completo com equivalência semântica: 35.723, 37.280 e 54.648 ações. A terceira, `dirt5-y-20261024-144639.jsonl.gz`, contém 20.501 quadros com Y 0..255 e zero divergências entre ABS_Y e HID Y. Seu `mock_history_dropped=2216` refere-se ao histórico diagnóstico limitado a 4096 ações, não perda de comandos; a captura completa e seu replay permanecem íntegros. O relato de que o acelerador funcionou concorda com essa telemetria.
 
@@ -135,4 +137,4 @@ As três capturas reais existentes passaram novamente em replay completo com equ
 4. Se a polaridade estiver invertida, reiniciar um novo ensaio a 5% com `--ffb-polarity -1`, sem alterar coeficientes PID ou descritor. A polaridade mecânica correta ainda não foi medida nesta entrega.
 5. Depois de confirmar o sentido, testar F7, F8 até 10%, F9, permanência desligada, reativação explícita, Pause/Disable/Stop e saída do jogo. Verificar zero/erase no trace e ausência de força residual. Aumentar o teto de sessão somente após revisar esses resultados.
 
-Não executar automaticamente os scripts históricos de pulsos. Antes deste ensaio, confirmar a correção da associação em modo passivo conforme [PID_BINDING.md](PID_BINDING.md). Não instalar drivers ou trocar para comandos Logitech proprietários.
+Não executar automaticamente os scripts históricos de pulsos. O ensaio inicial acima é histórico; a tarefa atual prioriza intensidade física e diagnóstico conforme [FFB_INTENSITY.md](FFB_INTENSITY.md). Não instalar drivers ou trocar para comandos Logitech proprietários.

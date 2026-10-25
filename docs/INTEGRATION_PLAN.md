@@ -1,5 +1,7 @@
 # Plano de conexão à baseline v0.8
 
+Estado mais recente: o operador ensaiou 5% e 10%. A faixa física agora é 0..100%, com slew configurável e diagnóstico de perdas; 375 testes offline passam. A prioridade é conferir intensidade, FF_GAIN e magnitude EVDEV antes de avaliar fidelidade. Auditoria e próximo comando: [FFB_INTENSITY.md](FFB_INTENSITY.md).
+
 A regressão de enumeração foi corrigida: a associação automática PIDFF omitida na refatoração foi restaurada com propriedade do nó e prontidão driver/EVDEV/FF. A saída física só inicia depois dessa validação. São 346 testes offline passando; nenhum bind real ou motor foi executado. A próxima tarefa é conferir reconhecimento no SteamOS em modo passivo. Consulte [PID_BINDING.md](PID_BINDING.md), inclusive a limitação global de `new_id`.
 
 ## Estado após a implementação EVDEV supervisionada

@@ -1,6 +1,22 @@
 # DFGT Bridge
 
-Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) como volante G29 virtual (`046d:c24f`) no SteamOS/DiRT 5. Os controles da v0.8 são a baseline funcional; o FFB está em desenvolvimento incremental. O operador testou 5% e 10%; a resposta física na faixa completa ainda precisa ser confirmada.
+Bridge experimental para apresentar um Logitech Driving Force GT (`046d:c29a`) como volante G29 virtual (`046d:c24f`) no SteamOS/DiRT 5. Os controles da v0.8 são a baseline funcional; o FFB está em desenvolvimento incremental. O operador validou o perfil oficial com força 100%, polaridade −1 e duração ilimitada.
+
+## Iniciar automaticamente pela Steam
+
+A integração systemd/launcher foi implementada e testada offline; a instalação real ainda deve ser validada no SteamOS.
+
+```sh
+sudo ./install.sh --test-ready
+```
+
+O teste de prontidão acima é passivo, sem motor. Depois, nas Opções de inicialização do DiRT 5:
+
+```text
+PROTON_ENABLE_HIDRAW=0x046d/0xc24f "/home/deck/.local/bin/dfgt-steam-launch" -- %command%
+```
+
+As partidas usam o perfil físico aprovado, sem sudo por partida e sem GUI aberta. Veja [instalação, segurança, validação e recuperação](docs/STEAM_INTEGRATION.md).
 
 ## Organização
 
@@ -26,7 +42,7 @@ Só é necessário Python 3.10+ para os testes offline; não instale `evdev` par
 python3 -B -m unittest discover -s tests -v
 ```
 
-A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **415 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
+A reorganização conservou inicialmente **18 testes: 5 passando e 13 falhas esperadas**. O estado atual é **459 testes passando, nenhuma falha esperada e nenhum teste ignorado**. As 13 divergências iniciais foram corrigidas e seus casos convertidos em testes normais. Veja [o estado de desenvolvimento](docs/DEVELOPMENT.md), [as fórmulas](docs/FFB_MATH.md) e [o contrato de transporte/ciclo de vida](docs/PID_TRANSPORT.md).
 
 Os scripts históricos exigem outras dependências e podem acessar hardware ou drivers. Não são executados pela suite offline. O novo pacote não substitui automaticamente o comando configurado no Steam. `scripts/run-passive.py` cria o G29 virtual com controles da v0.8 e, por padrão, calcula FFB exclusivamente no mock. A saída física opcional usa outro processo e os defaults aprovados: **100% / máximo 100%, polaridade −1, slew 327670, duração ilimitada**. Watchdog de cálculo, efeito EVDEV finito, supervisão do jogo e F7/F8/F9/F10 continuam ativos. `scripts/replay-capture.py` valida capturas offline e o trace físico pareado, sempre em mock. Os entrypoints inserem `src/` explicitamente porque o nome legado `dfgt_bridge.py` na raiz colide com o nome do pacote.
 
@@ -78,6 +94,7 @@ Fora desta restrição, um clone convencional usa `.git/` normalmente; o wrapper
 - [FFB EVDEV supervisionado, controles, replay e primeiro ensaio manual](docs/SUPERVISED_FFB.md)
 - [Intensidade 0–100%, perdas, ganho EVDEV e comando de faixa completa](docs/FFB_INTENSITY.md)
 - [Defaults oficiais, GUI, auditoria de botões e perfis por jogo](docs/PROFILES_AND_MAPPING.md)
+- [Inicialização automática pela Steam e serviço SteamOS](docs/STEAM_INTEGRATION.md)
 - [Regras para agentes e colaboradores](AGENTS.md)
 
 Testes de motor, alterações de drivers físicos, instalação/configuração persistente e avaliação de comandos proprietários Logitech dependem de aprovação separada.

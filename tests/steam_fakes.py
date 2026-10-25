@@ -18,4 +18,3 @@ class FakeRunner:
     def stop(self, now): self.stops.append(now)
     def poll(self, now): return self.code
     def close(self): self.closed = True
-

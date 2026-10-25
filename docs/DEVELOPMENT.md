@@ -204,3 +204,12 @@ Defaults oficiais centralizados: **100%/máximo 100%, polaridade −1, slew 3276
 Os SVGs foram renderizados offline. Não houve conexão ao display :0 para validar a janela real; Tk callbacks foram exercitados com simuladores. O build isolado em /tmp encontrou setuptools ausente e não instalou nada. A validação interativa no SteamOS, sentido A/B do dial e navegação das abas pelo L1/R1 permanecem tarefas do operador, sem execução física automática. Recursos de pacote/entrypoints estão declarados em pyproject.toml; execução pelo fonte permanece disponível.
 
 Commits: `4c35cbd` mapper/agregação e replay de entrada; `0f22256` perfis/defaults/duração; `8ccad90` GUI/arte/controles; `8f76df2` pulsos curtos. Comandos e limites: [PROFILES_AND_MAPPING.md](PROFILES_AND_MAPPING.md).
+
+
+## Integração automática Steam/systemd (2026-10-25)
+
+Implementados `steam_protocol.py`, `steam_service.py`, `steam_launcher.py`, `steam_install.py` e bootstrap `steam_main.py`, com wrappers install/uninstall/Steam e opção na aba Geral. O root executa somente snapshot protegido do backend; o launcher e Steam/Proton permanecem no usuário instalado. IPC fechado autentica credenciais, valida perfil, mantém lease e exclusividade. Prontidão exige PIDFF/EVDEV/FF e confirmação do worker, sem alterar descritor ou matemática. O runner manual permanece passivo por padrão.
+
+**459 testes passam**, zero falhas esperadas/ignorados, incluindo autorização, lifecycle, argumentos, heartbeat, duas sessões, reinício e instalador repetível em diretório temporário. Shell e dry-run passaram. O sandbox impediu IPC Unix nativo e verificação systemd; nenhuma unidade foi instalada/iniciada. A confirmação operacional no SteamOS ainda é necessária. Perfil 100%/100%, −1, slew 327670 e ilimitado foi preservado conforme validação física informada pelo usuário; não houve motor executado pelo agente.
+
+Commits: `79c2760` prontidão e escopo do usuário; `4eb6549` serviço autenticado e progresso do renderer; `cfbcf5e` launcher, instalação e GUI. Procedimentos completos e limites estão em [STEAM_INTEGRATION.md](STEAM_INTEGRATION.md). Referências históricas e capturas foram preservadas; sem push.

@@ -1,0 +1,100 @@
+# Inicialização automática pela Steam
+
+A integração está implementada e coberta por testes offline. Ainda depende de instalação e validação no SteamOS pelo operador, em Desktop Mode e Gaming Mode. Nenhum serviço, módulo ou motor foi iniciado nesta entrega.
+
+## Arquitetura e autorização
+
+O launcher roda como `deck`, mantém os argumentos originais de `%command%` e inicia Steam/Proton/jogo sem privilégios. O serviço systemd executa o runner/backend a partir de uma cópia instalada, pertencente a root, em `/var/lib/dfgt-bridge/runtime`. Alterações no checkout só chegam ao serviço após repetir o instalador.
+
+A comunicação usa socket Unix SOCK_SEQPACKET, permissão 0600 e credenciais SO_PEERCRED. Só o UID instalado pode solicitar `start`, `status`, `ping` e `stop`. O protocolo não aceita executáveis, argumentos arbitrários, caminhos de saída ou ambiente para root. O serviço aceita apenas o perfil `dirt5` aprovado e bloqueia outra sessão simultânea. Steam e seus ancestrais são excluídos da árvore de processos monitorada.
+
+Unidades: `dfgt-bridge.socket` ativa `dfgt-bridge.service`; `dfgt-bridge-modules.service` carrega somente os módulos UHID/PIDFF já instalados. Não instala drivers, não descarrega módulos e não troca o driver do DFGT físico. O backend usa apenas o DFGT `046d:c29a`; G920 é recusado. As permissões do serviço limitam dispositivos e escrita em sysfs. Não há sudoers genérico, alteração de udev, escrita em `/usr` ou desativação do modo somente leitura.
+
+O perfil permanece **100% / máximo 100%, polaridade −1, slew 327670, duração ilimitada, acelerador Y, G29 e auto PIDFF**. Mapeamentos aprovados são preservados; configurações incompatíveis produzem erro, sem redução silenciosa. O runner manual continua passivo por padrão; a opção automática instalada é a autorização explícita para o modo físico nas partidas.
+
+## Instalação única
+
+Feche o jogo e qualquer runner anterior. Execute como `deck`, a partir deste checkout confiável:
+
+```sh
+cd /home/deck/dfgt-bridge
+sudo ./install.sh --test-ready
+```
+
+A senha é necessária nesta instalação, não a cada partida. `--test-ready` cria o virtual e verifica prontidão **sem backend físico/motor**, encerrando-o em seguida. Pode omitir essa opção para instalar sem iniciar dispositivos. O instalador verifica dependências, drivers disponíveis, usuário, perfil e permissões; aborta diante de caminhos inseguros. Não altera automaticamente Steam ou o jogo.
+
+Instalações repetidas atualizam a cópia protegida e preservam perfis e a preferência de automação já escolhida. A instalação recusa atualização enquanto há sessão ativa. O estado persistente usa `/etc/systemd/system`, `/var/lib/dfgt-bridge` e `/var/log/dfgt-bridge`, sem modificar a imagem de `/usr`.
+
+Cole exatamente nas **Opções de inicialização** do DiRT 5, substituindo o launcher antigo:
+
+```text
+PROTON_ENABLE_HIDRAW=0x046d/0xc24f "/home/deck/.local/bin/dfgt-steam-launch" -- %command%
+```
+
+O wrapper usa argumentos separados, sem `eval`. Não coloque o jogo sob sudo. A GUI não precisa permanecer aberta. Em **Geral → Iniciar automaticamente com o jogo**, a preferência afeta a próxima partida. Desativá-la é uma escolha explícita para abrir o jogo sem bridge; uma falha de inicialização com a opção ativa nunca abre o jogo silenciosamente.
+
+## Prontidão e encerramento
+
+Antes de executar o comando Steam, o launcher exige confirmação do runner: G29 próprio associado a `hid-universal-pidff`, EVDEV virtual existente, capacidades FFB e confirmação do worker físico na sessão normal. Também aguarda acesso de leitura/escrita do usuário ao EVDEV. Falhas apresentam diagnóstico; não há espera infinita em `unbound`.
+
+Os prazos de inicialização não limitam a partida: serviço 40 s, cliente 70 s, aparecimento do jogo 180 s (ajustável com `--game-start-timeout`). Após iniciado, o perfil não tem timer de sessão. O launcher acompanha o processo real DiRT 5 e auxiliares por UID, parentesco, identidade PID/início e Steam AppID 1038250, incluindo handoff do Proton.
+
+Ao terminar o jogo, o launcher solicita parada do FFB antes de aguardar auxiliares. Sinais/cancelamento encerram os processos acompanhados. EOF do cliente, perda da identidade do launcher ou ausência de heartbeat por 3 s encerram a sessão. O serviço verifica progresso do renderer (1,5 s), além do watchdog físico independente existente (100 ms), efeito EVDEV finito (160 ms) e watchdog systemd (5 s). Esses prazos cobrem falhas diferentes, não são uma promessa de latência única.
+
+F7/F8 continuam ajustando intensidade, F9 trava a saída em zero e F10 mostra diagnóstico. Após F9, reiniciar explicitamente a sessão é a forma de reativar no modo automático. Se teclas globais não estiverem disponíveis, use o comando independente `--stop` abaixo. SIGKILL do launcher fecha sua conexão e interrompe o FFB; ele não pode executar cleanup Python dos processos Wine nessa situação. Use **Parar** na Steam para auxiliares remanescentes.
+
+## Validação no equipamento
+
+1. Rode o teste passivo da instalação: deve mostrar `[PRONTO]` com PIDFF, EVDEV e capacidades. Ele não testa torque.
+2. No Desktop Mode, inicie pela Steam com a Launch Option acima. A próxima partida usa o perfil físico aprovado de 100%; mantenha F9 disponível. Confira enumeração G29, direção, acelerador, freio, botões e L1/R1 das borboletas/manche.
+3. Feche normalmente, confirme sessão encerrada com `--status`, abra novamente e teste **Parar** pela Steam. Verifique ausência de segunda instância e limpeza do efeito.
+4. Repita em Gaming Mode sem GUI ou terminal aberto. Valide F9/F10 e recuperação após cancelar a inicialização. Não considere os testes offline como validação dessas etapas.
+
+O estado também pode ser consultado manualmente pela aba Geral. Fechar a GUI não encerra uma sessão pertencente à Steam.
+
+## Logs, captura e recuperação
+
+Sem captura detalhada por padrão. Logs operacionais: `/var/log/dfgt-bridge/service.log` (256 KiB + 2 backups), `~/.local/state/dfgt-bridge/steam.log` (128 KiB + 1 backup), além do journal com limitação por unidade. Erros do launcher também tentam notificação de desktop, sem depender dela para abortar.
+
+Para uma coleta explicitamente solicitada, acrescente `--capture` antes de `-- %command%`. O serviço escolhe nomes únicos em `/var/log/dfgt-bridge/captures/`; esses arquivos não têm rotação automática e precisam de espaço livre. O replay continua offline pelo mesmo núcleo, sem backend físico.
+
+Comandos como usuário:
+
+```sh
+~/.local/bin/dfgt-steam-launch --status
+~/.local/bin/dfgt-steam-launch --stop
+```
+
+Em falha persistente, feche o jogo e consulte:
+
+```sh
+sudo journalctl -u dfgt-bridge.service -u dfgt-bridge-modules.service -n 100 --no-pager
+sudo systemctl status dfgt-bridge.socket dfgt-bridge.service dfgt-bridge-modules.service
+```
+
+Para recuperar uma unidade em falha após corrigir a causa:
+
+```sh
+sudo systemctl stop dfgt-bridge.service
+sudo systemctl reset-failed dfgt-bridge.service dfgt-bridge-modules.service
+sudo systemctl restart dfgt-bridge-modules.service dfgt-bridge.socket
+```
+
+Não descarregue drivers Logitech nem faça bind de dispositivos físicos. Se uma atualização do sistema invalidar componentes/permissões, repita o instalador e o teste passivo. Não se afirma compatibilidade já testada com atualizações A/B do SteamOS.
+
+Desinstalação, com jogo fechado:
+
+```sh
+cd /home/deck/dfgt-bridge
+sudo ./uninstall.sh
+```
+
+Remova manualmente a Launch Option na Steam. O desinstalador é repetível, desativa/remove as unidades próprias e a cópia instalada, preservando perfis, logs e capturas. Não descarrega módulos usados por outros dispositivos.
+
+## Evidências e limites
+
+459 testes passam, sem testes ignorados ou falhas esperadas. Processos, dispositivos, credenciais e systemd são simulados; a suíte usa bloqueio adicional contra abertura de dispositivos reais. Cobrem autorização, prontidão, falha PIDFF, argumentos/ambiente, lifecycle, duas instâncias, reinício, perda de progresso, limpeza, instalação repetida e sessão ilimitada.
+
+O sandbox bloqueou operações de socket Unix e a verificação nativa de unidades systemd; portanto IPC real e endurecimento das unidades ainda exigem validação no alvo. O teste de sintaxe shell e o plano `./install.sh --dry-run` passaram. Exclusividade por flock é cooperativa: outro programa que ignore locks ainda pode escrever FFB. Não execute simultaneamente launchers experimentais. Não houve instalação real, alteração do SteamOS ou push.
+
+Referências de implementação: [systemd.socket](https://www.freedesktop.org/software/systemd/man/latest/systemd.socket.html), [systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html), [systemd.service](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html), [credenciais de sockets Unix](https://man7.org/linux/man-pages/man7/unix.7.html) e [AppID do DiRT 5](https://store.steampowered.com/app/1038250/DIRT_5/).

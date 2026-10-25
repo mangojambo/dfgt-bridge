@@ -124,3 +124,6 @@ Os dois pares reais de capturas de 5% e 10% passaram novamente no replay complet
 Os SVGs foram renderizados e inspecionados offline. A sessão não conseguiu conectar ao display `:0`, portanto não se afirma validação interativa da janela Tk neste ambiente. Uma tentativa de build de wheel isolada em `/tmp` encontrou `setuptools` ausente; nada foi instalado. O código fonte executa pelos scripts acima, e `pyproject.toml` declara os recursos/entrypoints para empacotamento futuro.
 
 Antes da publicação, o operador deve conferir: janela em resolução real do SteamOS, sentido A/B do dial, códigos compartilhados do corpo, navegação de abas/menu no jogo e início/encerramento físico com o perfil normal. Esses critérios físicos não são declarados concluídos por testes sintéticos. Nenhum comando de motor deve ser executado automaticamente para fazê-los passar.
+
+
+A integração opcional pela Steam tem configuração própria na aba **Geral** e usa os mesmos perfis. Fechar a GUI não encerra uma sessão pertencente ao launcher Steam. Instalação única, Launch Option e recuperação: [STEAM_INTEGRATION.md](STEAM_INTEGRATION.md).

@@ -161,6 +161,7 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
             last_summary = next_tick
             previous_events = 0
             reported_ready = False
+            last_progress_report = origin
             while stop['reason'] is None and not session.core.closed:
                 try:
                     bound = binding.poll()
@@ -253,6 +254,9 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                     runtime['missed_ticks'] += max(0, (now-next_tick)//22_222_223)
                     dispatch('tick', {})
                     next_tick = now + 22_222_223  # Sem recuperar ticks antigos por rajada.
+                if status_callback and reported_ready and now-last_progress_report >= 500_000_000:
+                    status_callback(dict(state='heartbeat'))
+                    last_progress_report = now
                 if now-last_summary >= 1_000_000_000:
                     runtime['binding'] = [binding.last]
                     if not getattr(args, 'operational_log', False):

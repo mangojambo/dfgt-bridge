@@ -98,3 +98,71 @@ Remova manualmente a Launch Option na Steam. O desinstalador é repetível, desa
 O sandbox bloqueou operações de socket Unix e a verificação nativa de unidades systemd; portanto IPC real e endurecimento das unidades ainda exigem validação no alvo. O teste de sintaxe shell e o plano `./install.sh --dry-run` passaram. Exclusividade por flock é cooperativa: outro programa que ignore locks ainda pode escrever FFB. Não execute simultaneamente launchers experimentais. Não houve instalação real, alteração do SteamOS ou push.
 
 Referências de implementação: [systemd.socket](https://www.freedesktop.org/software/systemd/man/latest/systemd.socket.html), [systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html), [systemd.service](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html), [credenciais de sockets Unix](https://man7.org/linux/man-pages/man7/unix.7.html) e [AppID do DiRT 5](https://store.steampowered.com/app/1038250/DIRT_5/).
+
+## Correção do erro 13 após a primeira ativação (2026-10-25)
+
+A auditoria encontrou colisão de propriedade entre `RuntimeDirectory=dfgt-bridge`
+(root) e `/run/dfgt-bridge/control.sock` (usuário, 0600). Ao corrigir o dono do
+diretório, systemd também pode mudar recursivamente o dono do socket já criado.
+A primeira conexão ativa o serviço; conexões posteriores falham em
+`connect(/run/dfgt-bridge/control.sock)` com EACCES. Esse mecanismo está descrito
+em [RuntimeDirectory no systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RuntimeDirectory=).
+
+As evidências locais disponíveis mostram prontidão passiva seguida por erro 13 no
+launcher, sem nova sessão no log do serviço; o socket possui o mesmo dono dos
+arquivos root, em vez do UID 1000 configurado. Isso sustenta a causa acima; o log
+antigo não contém traceback nem registra a syscall, portanto não prova sozinho
+qual operação falhou na execução original. A nova instrumentação identifica
+`launcher.control.connect`, leitura do perfil, criação da sessão, escrita privada,
+socketpair, spawn e falhas I/O do runner, com errno e caminho. Caminhos privados
+em home são abreviados; conteúdo do perfil e ambiente não são registrados.
+
+O backend agora usa **`/run/dfgt-bridge-backend` (0700)** para lock e sessões.
+O socket continua em `/run/dfgt-bridge/control.sock`, 0600 para o usuário instalado,
+fora da árvore gerida pelo serviço. A atualização verifica também o lock legado
+antes de parar a instalação anterior. Não se relaxam permissões do socket.
+
+Leitores do perfil: GUI/CLI usam `ProfileStore`; o launcher lê o JSON 0600 no home
+como usuário e valida o perfil aprovado. O instalador abandona privilégios antes
+de acessar arquivos do usuário. O daemon recebe apenas valores pelo IPC com
+SO_PEERCRED, revalida-os e escreve sua cópia 0600 na sessão privada em `/run`.
+O runner privilegiado lê essa cópia explícita, sem precisar acessar `/home`.
+O protocolo continua recusando caminhos, argv, ambiente e comandos arbitrários.
+
+`ProtectHome=yes` e `ProtectSystem=strict` permanecem. Escritas de execução ficam
+no `RuntimeDirectory`; logs e captura opt-in ficam no `LogsDirectory`. O snapshot
+e a política em `/var/lib` são somente leitura durante execução e só o instalador
+os atualiza. Não há necessidade de tornar `/home` ou `/var/lib` graváveis no daemon.
+
+Com jogo fechado, atualize a instalação existente a partir deste checkout:
+
+```sh
+cd /home/deck/dfgt-bridge
+sudo ./install.sh
+~/.local/bin/dfgt-steam-launch --status
+~/.local/bin/dfgt-steam-launch --check-ready
+~/.local/bin/dfgt-steam-launch --status
+~/.local/bin/dfgt-steam-launch --check-ready
+~/.local/bin/dfgt-steam-launch --status
+stat -c '%u %g %a %n' /run/dfgt-bridge/control.sock
+```
+
+A reinstalação para as unidades antigas e recria o socket; não basta copiar o
+Python ou reiniciar somente o daemon. Os dois probes devem imprimir `[PRONTO]`,
+sem motor/jogo. O status pode mostrar `stopping` brevemente após o probe; aguarde
+`idle` antes de repetir. O socket deve continuar UID 1000 e modo 600 depois da
+ativação (substitua 1000 pelo UID instalado se diferente). Só então abra o DiRT 5.
+Se falhar, consulte `steam.log` e o journal conforme a seção anterior; a mensagem
+nova informa operação/caminho/errno. Não use chmod amplo nem desative o sandbox.
+
+USB: a entrada é reaberta pelo link estável `/dev/input/by-id/`, com validação
+046d:c29a; não há eventN físico fixo. A desconexão termina a sessão e zera/encerra
+sua saída pelo cleanup/watchdog existente. Não há rearmamento automático ao
+reconectar. Com jogo fechado, reconecte, aguarde o link by-id e `idle`, e repita
+`--check-ready`; uma nova sessão resolve o novo eventN e descarta o estado antigo.
+
+Regressões offline incluem perfil 0600, home inacessível simulado, separação das
+árvores systemd, erros de permissão, limpeza após falha, reconexão com novo fd,
+locks das duas instalações e partidas repetidas. O comportamento systemd e USB
+real ainda requer o procedimento passivo no SteamOS; nenhum dispositivo foi
+aberto nem serviço alterado pelo agente nesta correção.

@@ -213,3 +213,21 @@ Implementados `steam_protocol.py`, `steam_service.py`, `steam_launcher.py`, `ste
 **459 testes passam**, zero falhas esperadas/ignorados, incluindo autorização, lifecycle, argumentos, heartbeat, duas sessões, reinício e instalador repetível em diretório temporário. Shell e dry-run passaram. O sandbox impediu IPC Unix nativo e verificação systemd; nenhuma unidade foi instalada/iniciada. A confirmação operacional no SteamOS ainda é necessária. Perfil 100%/100%, −1, slew 327670 e ilimitado foi preservado conforme validação física informada pelo usuário; não houve motor executado pelo agente.
 
 Commits: `79c2760` prontidão e escopo do usuário; `4eb6549` serviço autenticado e progresso do renderer; `cfbcf5e` launcher, instalação e GUI. Procedimentos completos e limites estão em [STEAM_INTEGRATION.md](STEAM_INTEGRATION.md). Referências históricas e capturas foram preservadas; sem push.
+
+## Erro 13 na ativação Steam (2026-10-25)
+
+Separado RuntimeDirectory root (`dfgt-bridge-backend`, 0700) da árvore do socket
+0600 do usuário. A configuração anterior permitia que systemd alterasse o dono
+do socket ao iniciar o daemon. Logs locais e metadados sustentam esse mecanismo;
+o erro antigo não tinha contexto suficiente para provar a syscall original.
+Diagnósticos agora incluem operação, caminho abreviado quando privado e errno.
+O perfil já era carregado pelo launcher e revalidado no serviço; preservamos IPC
+fechado, home inacessível, isolamento e defaults aprovados. A atualização confere
+locks antigos e novos e recria o socket por reinstalação das unidades.
+
+468 testes offline passam. Novos casos cobrem home bloqueado simulado, cópia
+privada 0600, permissões, cleanup, árvores systemd distintas, migração e USB com
+novo fd pelo mesmo by-id. Referências, descritor e matemática não mudaram.
+Procedimento de atualização e dois probes passivos em STEAM_INTEGRATION.md.
+Nenhum serviço/dispositivo/motor foi iniciado; validação nativa permanece com o
+operador.

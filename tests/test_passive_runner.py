@@ -51,6 +51,9 @@ class FakeSelector(FakeResource):
     def select(self, timeout):
         return [(key, 1) for key in self.keys]
 
+    def unregister(self, fd):
+        self.keys = [key for key in self.keys if key.fd != fd]
+
 
 class FakeBinding:
     last = dict(node='0003:046D:C24F.FAKE', driver='hid-universal-pidff',
@@ -74,6 +77,8 @@ class RunnerTests(unittest.TestCase):
         self.args = SimpleNamespace(source='fake', capture=str(self.path), capacity=40, strength=20,
                                     gas_axis='z', invert_gas=False, duration=.2, proton='test',
                                     hid_route='unknown', scenario='synthetic')
+        self.args.ffb_strength, self.args.ffb_max_strength = 10, 20
+        self.args.ffb_polarity, self.args.ffb_seconds, self.args.ffb_slew_rate = 1, 120, 16383.5
         self.wheel = FakeWheel()
         self.virtual = FakeVirtual([get_report(0x57, 42)])
         self.selector = FakeSelector()

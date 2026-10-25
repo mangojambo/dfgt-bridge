@@ -15,7 +15,9 @@ from dfgt_bridge.supervised import SupervisedPolicy
 class IntensityTests(unittest.TestCase):
     def policy(self, strength=100, maximum=100, **kwargs):
         dev = MockBackend(clock=lambda: policy.now_ns/1e9)
-        policy = SupervisedPolicy(dev, strength=strength, maximum=maximum, **kwargs)
+        options = dict(polarity=1, session_s=120, slew_per_s=16383.5)
+        options.update(kwargs)
+        policy = SupervisedPolicy(dev, strength=strength, maximum=maximum, **options)
         self.addCleanup(lambda: None if policy.closed else policy.apply('close', {}, policy.now_ns))
         return policy, dev
 

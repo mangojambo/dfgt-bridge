@@ -38,7 +38,8 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
             if not match and not verify_compatible:
                 raise ValueError('Fontes do trace físico diferentes; use --verify-compatible para conferir resultados')
             backend = MockBackend(clock=lambda: policy.now_ns/1e9)
-            policy = SupervisedPolicy(backend, **metadata['config'])
+            # Perfis antigos omitiam slew, cujo default histórico era 16383.5.
+            policy = SupervisedPolicy(backend, **dict({'slew_per_s': 16383.5}, **metadata['config']))
             def verify_result(expected):
                 actual = policy.snapshot()
                 # Extensão aditiva v2: traces v1 não continham esse diagnóstico.

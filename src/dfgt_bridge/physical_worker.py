@@ -16,6 +16,7 @@ from contextlib import ExitStack
 from .capture import CaptureWriter, canonical, implementation_hash
 from .supervised import SupervisedPolicy
 from .ffb.safety import validate_percent
+from .config import FFB_DEFAULTS
 
 MAX_PACKET = 4096
 
@@ -81,7 +82,8 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             print('[FFB] Teclas globais F7/F8: -/+5%; F9: desligar (não alterna); '
                   'F10: diagnóstico. Reativar somente por ffb-arm no terminal.', flush=True)
         print(f'[FFB] Supervisor PID={os.getpid()}; teto inicial={config["strength"]}%, '
-              f'máximo={config["maximum"]}%; slew={policy.output.slew_per_s} unidades/s.', flush=True)
+              f'máximo={config["maximum"]}%; slew={policy.output.slew_per_s} unidades/s; '
+              f'sessão={"unlimited" if policy.output.test_limit_s is None else str(policy.output.test_limit_s)+"s"}.', flush=True)
 
         def apply(action, data, now=None):
             stamp = time.monotonic_ns() if now is None else now
@@ -194,7 +196,9 @@ class PhysicalClient:
     def __init__(self, path, *, enable_ffb=False, config=None, keyboard_path=None, trace_path=None, game_pid=None):
         if enable_ffb is not True:
             raise PermissionError('Processo físico exige --enable-ffb')
-        self.config = dict(config or dict(strength=10, maximum=20, polarity=1, session_s=120), require_game=True)
+        self.config = dict(config or dict(strength=FFB_DEFAULTS['ffb_strength'],
+                          maximum=FFB_DEFAULTS['ffb_max_strength'], polarity=FFB_DEFAULTS['ffb_polarity'],
+                          slew_per_s=FFB_DEFAULTS['ffb_slew_rate'], session_s=FFB_DEFAULTS['ffb_seconds']), require_game=True)
         # Validar antes de criar processo/fd usando somente o mock.
         from .backends.mock import MockBackend
         probe = SupervisedPolicy(MockBackend(), **self.config)

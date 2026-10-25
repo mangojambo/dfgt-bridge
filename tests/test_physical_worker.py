@@ -66,7 +66,7 @@ class WorkerTests(unittest.TestCase):
     def run_worker(self, require_game=False, strength=10, maximum=20):
         worker.worker(self.channel, self.status, self.commands, self.epoch, self.emergency,
                       self.quit, 'fake', dict(strength=strength, maximum=maximum, polarity=1, session_s=120,
-                      require_game=require_game), None, str(self.path))
+                      require_game=require_game, slew_per_s=16383.5), None, str(self.path))
 
     def frame(self, generation=1, epoch=0):
         return json.dumps(dict(generation=generation, calculated_ns=1_000_000, stop_epoch=epoch,

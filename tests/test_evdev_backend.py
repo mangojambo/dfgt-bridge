@@ -174,7 +174,7 @@ class EvdevBackendTests(unittest.TestCase):
             result = session.apply('uhid', {'raw_hex': raw.hex()}, now)
             self.assertIsNone(result['error'])
         dev = self.backend()
-        policy = SupervisedPolicy(dev, strength=100, maximum=100, slew_per_s=327670)
+        policy = SupervisedPolicy(dev, strength=100, maximum=100, polarity=1, slew_per_s=327670)
         self.addCleanup(lambda: policy.apply('close', {}, policy.now_ns))
         for generation in range(1, 9):
             now += 25_000_000
@@ -189,3 +189,18 @@ class EvdevBackendTests(unittest.TestCase):
         policy.apply('stop', dict(reason='F9', latch=True), policy.now_ns+1)
         self.assertEqual(dev.diagnostic()['level_commanded'], 0)
         self.assertEqual(dev.diagnostic()['gain_commanded'], 0)
+
+    def test_official_unlimited_defaults_send_inverted_full_scale_native_constant(self):
+        from dfgt_bridge.supervised import SupervisedPolicy
+        from dfgt_bridge.ffb.effects import OUTPUT_COMPONENTS
+        dev = self.backend()
+        policy = SupervisedPolicy(dev)
+        self.addCleanup(lambda: policy.apply('close', {}, policy.now_ns))
+        for i in range(1, 9):
+            stamp = i*25_000_000
+            policy.apply('frame', dict(generation=i, calculated_ns=stamp,
+                components={k: 32767 if k == 'constant' else 0 for k in OUTPUT_COMPONENTS}), stamp)
+        self.assertIsNone(policy.output.test_limit_s)
+        self.assertEqual(self.uploads[-1].u.constant.level, -32767)
+        self.assertEqual(self.uploads[-1].direction, 0x4000)
+        self.assertEqual(dev.gain_commanded, 65535)

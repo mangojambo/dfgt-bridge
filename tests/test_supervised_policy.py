@@ -12,7 +12,9 @@ class SupervisedPolicyTests(unittest.TestCase):
     def setUp(self):
         self.now = 0
         self.backend = MockBackend(clock=lambda: self.now/1e9)
-        self.policy = SupervisedPolicy(self.backend)
+        # Vetores históricos explícitos: os defaults oficiais são testados separadamente.
+        self.policy = SupervisedPolicy(self.backend, strength=10, maximum=20, polarity=1,
+                                       session_s=120, slew_per_s=16383.5)
         self.generation = 0
         self.addCleanup(self.close)
 
@@ -36,7 +38,7 @@ class SupervisedPolicyTests(unittest.TestCase):
         for _ in range(12):
             self.frame(level)
 
-    def test_default_ten_percent_and_conservative_initial_slew(self):
+    def test_explicit_ten_percent_and_conservative_initial_slew(self):
         first = self.frame()
         self.assertEqual(first['strength'], 10)
         self.assertEqual(first['maximum'], 20)

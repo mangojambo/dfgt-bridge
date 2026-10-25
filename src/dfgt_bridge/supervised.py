@@ -10,11 +10,14 @@ import math
 
 from .ffb.effects import OUTPUT_COMPONENTS
 from .ffb.safety import ConstantOutput, validate_percent
+from .config import FFB_DEFAULTS
 
 
 class SupervisedPolicy:
-    def __init__(self, backend, *, strength=10, maximum=20, polarity=1, session_s=120,
-                 require_game=False, slew_per_s=16383.5):
+    def __init__(self, backend, *, strength=FFB_DEFAULTS['ffb_strength'],
+                 maximum=FFB_DEFAULTS['ffb_max_strength'], polarity=FFB_DEFAULTS['ffb_polarity'],
+                 session_s=FFB_DEFAULTS['ffb_seconds'], require_game=False,
+                 slew_per_s=FFB_DEFAULTS['ffb_slew_rate']):
         validate_percent(strength)
         validate_percent(maximum)
         if strength > maximum or type(polarity) is not int or polarity not in (-1, 1):
@@ -25,7 +28,7 @@ class SupervisedPolicy:
         self.now_ns = 0
         self.output = ConstantOutput(backend, strength, clock=lambda: self.now_ns/1e9,
                                      max_strength_percent=maximum, test_limit_s=session_s,
-                                     slew_per_s=slew_per_s)
+                                     slew_per_s=slew_per_s, allow_unlimited=True)
         self.polarity = polarity
         self.last_generation = 0
         self.last_valid_ns = None
@@ -65,7 +68,8 @@ class SupervisedPolicy:
     def check(self):
         if self.last_valid_ns is not None and self.now_ns-self.last_valid_ns >= 100_000_000 and not self.latched:
             self.stop('watchdog_calculation_stale', latch=True)
-        if self.output.first_active is not None and self.now_ns/1e9-self.output.first_active >= self.output.test_limit_s:
+        if (self.output.test_limit_s is not None and self.output.first_active is not None and
+                self.now_ns/1e9-self.output.first_active >= self.output.test_limit_s):
             self.hard_fault = True
             if not self.latched:
                 self.stop('supervised_session_deadline', latch=True, fatal=True)

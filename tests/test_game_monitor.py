@@ -43,7 +43,7 @@ class GameMonitorTests(unittest.TestCase):
         self.assertIsNone(GameMonitor(2, root=self.root).poll(0))
 
     def test_physical_policy_waits_for_game_and_latches_on_exit(self):
-        policy = SupervisedPolicy(MockBackend(), require_game=True)
+        policy = SupervisedPolicy(MockBackend(), require_game=True, polarity=1)
         self.addCleanup(lambda: policy.apply('close', {}, policy.now_ns) if not policy.closed else None)
         frame = dict(generation=1, calculated_ns=1, components=dict.fromkeys(OUTPUT_COMPONENTS, 1000))
         policy.apply('frame', frame, 1)

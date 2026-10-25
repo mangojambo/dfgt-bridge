@@ -40,7 +40,7 @@ class PhysicalIntegrationTests(unittest.TestCase):
         factory = Mock(return_value=physical)
         self.execute(physical_factory=factory)
         self.assertTrue(factory.call_args.kwargs['enable_ffb'])
-        self.assertEqual(factory.call_args.kwargs['config'], dict(strength=10, maximum=20, polarity=1, session_s=120, require_game=True))
+        self.assertEqual(factory.call_args.kwargs['config'], dict(strength=10, maximum=20, polarity=1, session_s=120, require_game=True, slew_per_s=16383.5))
         self.assertTrue(physical.frames)
         self.assertTrue(physical.closed)
         footer = json.loads(self.path.read_text().splitlines()[-1])
@@ -72,3 +72,14 @@ class PhysicalIntegrationTests(unittest.TestCase):
         self.assertEqual(factory.call_args.kwargs['config']['strength'], 100)
         self.assertEqual(factory.call_args.kwargs['config']['maximum'], 100)
         self.assertEqual(factory.call_args.kwargs['config']['slew_per_s'], 327670)
+
+    def test_gui_control_eof_closes_runner_and_physical_client(self):
+        from unittest.mock import patch
+        self.args.enable_ffb = self.args.control_stdin = True
+        physical = FakePhysical()
+        with patch('sys.stdin.fileno', return_value=999), patch('os.read', return_value=b''):
+            self.execute(physical_factory=Mock(return_value=physical))
+        self.assertTrue(physical.closed)
+        self.assert_closed()
+        footer = json.loads(self.path.read_text().splitlines()[-1])
+        self.assertEqual(footer['reason'], 'GUI_control_EOF')

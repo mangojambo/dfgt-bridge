@@ -36,7 +36,7 @@ class ConstantOutput:
     """
     def __init__(self, dev=None, strength_percent=12, rate_hz=45, clock=time.monotonic,
                  boost=1.0, periodic_boost=1.0, max_strength_percent=60,
-                 test_limit_s=120, condition_headroom=0.0, slew_per_s=None):
+                 test_limit_s=120, condition_headroom=0.0, slew_per_s=None, allow_unlimited=False):
         dev = MockBackend(clock=clock) if dev is None else dev
         if (dev.info.vendor, dev.info.product) != (0x046d, 0xc29a):
             raise RuntimeError('FFB rejeitado: fonte física não é DFGT 046d:c29a')
@@ -47,7 +47,7 @@ class ConstantOutput:
         if not (0 <= strength_percent <= max_strength_percent and
                 0 <= max_strength_percent <= 100 and 15 <= rate_hz <= 45):
             raise ValueError('Limites: intensidade inicial 0..máximo, teto 0..100%, taxa 15..45Hz')
-        if test_limit_s is None and not isinstance(dev, MockBackend):
+        if test_limit_s is None and not isinstance(dev, MockBackend) and allow_unlimited is not True:
             raise ValueError('Sessão sem limite global exige MockBackend')
         if test_limit_s is not None and not (30 <= test_limit_s <= 240):
             raise ValueError('Duração de teste permitida: 30..240s')

@@ -24,7 +24,7 @@ class PhysicalReplayTests(unittest.TestCase):
         self.core_writer = CaptureWriter(self.core_path, self.session.metadata())
         self.addCleanup(self.core_writer.close)
         self.recorder = Recorder(self.session, self.core_writer)
-        self.config = dict(strength=10, maximum=20, polarity=-1, session_s=120)
+        self.config = dict(strength=10, maximum=20, polarity=-1, session_s=120, slew_per_s=16383.5)
         self.policy = SupervisedPolicy(MockBackend(clock=lambda: self.policy.now_ns/1e9), **self.config)
         self.trace_writer = CaptureWriter(self.trace_path, dict(kind='physical_policy', config=self.config,
                                           diagnostics_version=2,

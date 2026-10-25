@@ -18,6 +18,8 @@ from .input.physical_wheel import PhysicalWheel, SOURCE
 from .passive import PassiveSession
 from .uhid_io import VirtualDevice
 from .pid_binding import PIDBinding, BindingError
+from .config import ProfileStore, DEFAULTS, duration
+from .input.mapping import preset
 
 
 def virtual_nodes():
@@ -59,18 +61,18 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
     origin = time.monotonic_ns()
     stop = {'reason': None} if stop is None else stop
     session = PassiveSession(origin, capacity=args.capacity, strength_percent=args.strength,
-                             gas_axis=args.gas_axis, invert_gas=args.invert_gas)
+                             gas_axis=args.gas_axis, invert_gas=args.invert_gas,
+                             mapping=getattr(args, 'mapping', None))
     runtime = dict(max_processing_ns=0, slow_actions=0, missed_ticks=0,
                    input_resyncs=0, binding=[], ready=False, report_classification={}, proprietary_commands={})
     classifications, proprietary_commands = Counter(), Counter()
     writer = recorder = physical = binding = None
     enable_ffb = getattr(args, 'enable_ffb', False)
-    physical_config = dict(strength=getattr(args, 'ffb_strength', 10),
-                           maximum=getattr(args, 'ffb_max_strength', 20),
-                           polarity=getattr(args, 'ffb_polarity', 1),
-                           session_s=getattr(args, 'ffb_seconds', 120), require_game=True)
-    if getattr(args, 'ffb_slew_rate', None) is not None:
-        physical_config['slew_per_s'] = args.ffb_slew_rate
+    physical_config = dict(strength=getattr(args, 'ffb_strength', DEFAULTS['ffb_strength']),
+                           maximum=getattr(args, 'ffb_max_strength', DEFAULTS['ffb_max_strength']),
+                           polarity=getattr(args, 'ffb_polarity', DEFAULTS['ffb_polarity']),
+                           session_s=getattr(args, 'ffb_seconds', DEFAULTS['ffb_seconds']), require_game=True,
+                           slew_per_s=getattr(args, 'ffb_slew_rate', DEFAULTS['ffb_slew_rate']))
     trace_path = getattr(args, 'physical_trace', None)
     if enable_ffb and not trace_path and args.capture:
         trace_path = args.capture + '.ffb.jsonl.gz'
@@ -102,7 +104,7 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
             selector.register(virtual.fd, selectors.EVENT_READ, 'uhid')
             selector.register(wheel.fd, selectors.EVENT_READ, 'wheel')
             console = b''
-            if sys.stdin.isatty():
+            if sys.stdin.isatty() or getattr(args, 'control_stdin', False):
                 selector.register(sys.stdin.fileno(), selectors.EVENT_READ, 'console')
             def start_physical():
                 nonlocal physical_factory, physical
@@ -202,6 +204,8 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                         data = os.read(key.fd, 256)
                         if not data:
                             selector.unregister(key.fd)
+                            if getattr(args, 'control_stdin', False):
+                                stop['reason'] = 'GUI_control_EOF'
                             continue
                         console += data
                         if len(console) > 1024:
@@ -274,23 +278,27 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', default=SOURCE)
     parser.add_argument('--capture', metavar='CAPTURA.jsonl')
-    parser.add_argument('--auto-pidff', action='store_true', default=True,
+    parser.add_argument('--profile', default='dirt5', help='Perfil de jogo compartilhado com a GUI')
+    parser.add_argument('--profiles-file', help='JSON de perfis; padrão XDG_CONFIG_HOME/dfgt-bridge/profiles.json')
+    parser.add_argument('--save-profile', action='store_true', help='Salvar opções explícitas no perfil antes de executar')
+    parser.add_argument('--control-stdin', action='store_true', help='Console via pipe da GUI; EOF encerra o bridge')
+    parser.add_argument('--preset', choices=('g29', 'gears', 'custom'))
+    parser.add_argument('--auto-pidff', action='store_true', default=None,
                         help='Compatibilidade v0.8: associação PIDFF automática já é padrão')
-    parser.add_argument('--identity', choices=('g29',), default='g29', help='Identidade virtual fixa preservada')
+    parser.add_argument('--identity', choices=('g29',), help='Identidade virtual fixa preservada')
     parser.add_argument('--bind-timeout', type=float, default=25, help='Prazo de prontidão PIDFF/EVDEV/FF, 1..60s')
     parser.add_argument('--enable-ffb', action='store_true', help='Autoriza saída física DFGT supervisionada')
-    parser.add_argument('--ffb-strength', type=int, choices=range(0, 101), default=10, metavar='0..100')
-    parser.add_argument('--ffb-max-strength', type=int, choices=range(0, 101), default=20, metavar='0..100')
-    parser.add_argument('--ffb-slew-rate', type=float, default=16383.5, metavar='UNIDADES/S',
-                        help='Variação máxima por segundo; padrão 16383.5 (0→100%% em 2s)')
-    parser.add_argument('--ffb-polarity', type=int, choices=(-1, 1), default=1)
-    parser.add_argument('--ffb-seconds', type=int, choices=range(30, 241), default=120, metavar='30..240')
+    parser.add_argument('--ffb-strength', type=int, choices=range(0, 101), metavar='0..100', help='Padrão: 100')
+    parser.add_argument('--ffb-max-strength', type=int, choices=range(0, 101), metavar='0..100', help='Padrão: 100')
+    parser.add_argument('--ffb-slew-rate', type=float, metavar='UNIDADES/S', help='Padrão: 327670 unidades/s')
+    parser.add_argument('--ffb-polarity', type=int, choices=(-1, 1), help='Padrão oficial: -1')
+    parser.add_argument('--ffb-seconds', type=str, metavar='unlimited|30..240', help='Padrão: unlimited')
     parser.add_argument('--keyboard-event', help='Teclado evdev explícito; somente com --enable-ffb')
     parser.add_argument('--physical-trace', help='Trace da política física (replay só offline)')
     parser.add_argument('--game-pid', type=int, help='PID de DiRT5.exe; padrão: descobrir e supervisionar automaticamente')
-    parser.add_argument('--gas-axis', choices=('z', 'y', 'both'), default='y',
+    parser.add_argument('--gas-axis', choices=('z', 'y', 'both'),
                         help='Eixo virtual do acelerador: y corresponde à v0.8 usada no DiRT 5 (padrão)')
-    parser.add_argument('--invert-gas', action='store_true')
+    parser.add_argument('--invert-gas', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--strength', type=int, choices=range(0, 61), default=20, metavar='0..60',
                         help='Ganho da simulação; não controla o motor')
     parser.add_argument('--capacity', type=int, choices=range(1, 41), default=40, metavar='1..40')
@@ -300,6 +308,24 @@ def main(argv=None):
                         help='Rota anotada; não é detectada a partir dos bytes')
     parser.add_argument('--scenario', default='unknown', help='Carro/pista/ajustes anotados')
     args = parser.parse_args(argv)
+    try:
+        store = ProfileStore(args.profiles_file)
+        profile = store.load(args.profile)
+        for name in DEFAULTS:
+            value = getattr(args, name)
+            if value is not None:
+                profile[name] = duration(value) if name == 'ffb_seconds' else value
+        if args.preset is not None:
+            if args.preset != 'custom':
+                profile['mapping'] = preset(args.preset)
+            profile['preset'] = args.preset
+        from .config import validate_profile
+        profile = validate_profile(profile)
+        for name in DEFAULTS:
+            setattr(args, name, profile[name])
+        args.mapping = profile['mapping']
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
     if args.ffb_strength > args.ffb_max_strength:
         parser.error('--ffb-strength não pode exceder --ffb-max-strength')
     if not __import__('math').isfinite(args.ffb_slew_rate) or args.ffb_slew_rate <= 0:
@@ -310,6 +336,11 @@ def main(argv=None):
         parser.error('--game-pid deve ser positivo e identificar DiRT5.exe')
     if args.duration is not None and (not __import__('math').isfinite(args.duration) or args.duration <= 0):
         parser.error('--duration deve ser finita e positiva')
+    if args.save_profile:
+        try:
+            store.save(args.profile, profile)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
     stop = {'reason': None}
     previous = {}
     def interrupted(number, frame):

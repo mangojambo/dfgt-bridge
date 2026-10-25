@@ -27,6 +27,9 @@ class Variable:
 class Widget:
     """Contrato mínimo de widgets Tk; todos os callbacks reais permanecem ativos."""
     def __init__(self, *args, **kwargs):
+        if args and not hasattr(args[0], 'tk'):
+            raise AttributeError(f'{type(args[0]).__name__!r} object has no attribute \'tk\'')
+        self.tk = object()
         self.options = kwargs
         self.events, self.items, self.rows = {}, {}, []
         self.text = ''
@@ -96,6 +99,14 @@ class GUITests(unittest.TestCase):
         self.assertEqual(self.app.form['ffb_polarity'].get(), -1)
         self.assertEqual(self.app.form['ffb_slew_rate'].get(), 327670)
         self.assertEqual(self.app.form['ffb_seconds'].get(), 'unlimited')
+
+    def test_shell_builds_every_panel_in_its_frame_not_the_profile_identifier(self):
+        self.assertIsInstance(self.app.home, Widget)
+        self.assertIsInstance(self.app.settings, Widget)
+        self.assertIsInstance(self.app.mapping, Widget)
+        self.assertIsInstance(self.app.diagnostics, Widget)
+        self.assertEqual(self.app.profile_name.get(), 'dirt5')
+        self.assertIsNot(self.app.home, self.app.profile_name)
 
     def test_all_virtual_buttons_have_clickable_front_hotspots(self):
         self.assertTrue(set(TARGET_NAMES) <= controls('g29'))

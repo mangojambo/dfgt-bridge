@@ -58,7 +58,7 @@ class BridgeGUI:
         self.root.minsize(1000, 700)
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.apply_theme()
-        self.build_shell(profile)
+        self.build_shell()
         self.sync_form()
         self._refresh_service_text()
         self.refresh()
@@ -135,7 +135,7 @@ class BridgeGUI:
     def preset_for_label(self, label):
         return next(key for key in PRESETS if self.t('preset.'+key) == label)
 
-    def build_shell(self, profile):
+    def build_shell(self):
         bar = ttk.Frame(self.root, padding=(14, 10));bar.pack(fill='x')
         self.label(bar, 'profile.label').pack(side='left')
         names = sorted(self.store.read())
@@ -157,7 +157,10 @@ class BridgeGUI:
         self.settings = ttk.Frame(self.tabs, padding=18);self.diagnostics = ttk.Frame(self.tabs, padding=18)
         self.tab(self.home, 'nav.home');self.tab(self.mapping, 'nav.mapping')
         self.tab(self.settings, 'nav.settings');self.tab(self.diagnostics, 'nav.diagnostics')
-        self.build_home(profile);self.build_setup(self.settings);self.build_mapping(self.mapping);self.build_diagnostics(self.diagnostics)
+        self.build_home(self.home)
+        self.build_setup(self.settings)
+        self.build_mapping(self.mapping)
+        self.build_diagnostics(self.diagnostics)
         self.status_label = ttk.Label(self.root, textvariable=self.status, wraplength=1250, padding=(14, 8), anchor='w')
         self.status_label.pack(fill='x')
         self.tabs.select(self.home)

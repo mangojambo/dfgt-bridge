@@ -1,8 +1,8 @@
 # Changelog
 
-## v1.0.0 — 2026-10-25 (release candidate preparation)
+## v1.0.0 — 2026-10-25
 
-First public release candidate, pending license approval and public repository review.
+First public release.
 
 - Present the DFGT as a virtual G29 through UHID with automatic PIDFF readiness checks.
 - Add Steam launcher and restricted systemd service with authenticated local IPC, session lease, device lock, and isolated runtime directory.

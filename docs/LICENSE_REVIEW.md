@@ -1,6 +1,6 @@
 # License and attribution
 
-The owner approved `GPL-2.0-only`. A top-level `LICENSE` file now contains the complete GNU GPL version 2 text, matching existing Python SPDX headers and `pyproject.toml`. Approval of this license does not authorize public repository creation or push.
+The owner approved `GPL-2.0-only`. The top-level `LICENSE` file contains the complete GNU GPL version 2 text, matching existing Python SPDX headers and `pyproject.toml`.
 
 ## License decision
 

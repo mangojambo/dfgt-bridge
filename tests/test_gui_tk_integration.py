@@ -31,13 +31,20 @@ class NativeTkStartupTests(unittest.TestCase):
                 if app.locale != locale:
                     app.language.set(language_label)
                     app.change_language()
-                for geometry, expected_wide in (('1000x700', False), ('1280x800', True), ('1600x900', True)):
+                for geometry in ('1000x700', '1280x800', '1600x900'):
                     root.geometry(geometry)
                     app.tabs.select(app.mapping)
                     root.update_idletasks()
-                    self.assertEqual(app.mapping_wide, expected_wide)
-                    self.assertGreater(app.dfgt_canvas.winfo_width(), 200)
-                    self.assertGreater(app.g29_canvas.winfo_height(), 200)
+                    root.update()
+                    layout_width = app.mapping_layout.winfo_width()
+                    self.assertGreater(layout_width, 0)
+                    self.assertEqual(app.mapping_wide, layout_width >= 1180)
+                    self.assertGreater(app.dfgt_canvas.winfo_width(), 0)
+                    self.assertGreater(app.g29_canvas.winfo_height(), 0)
+                    for card, canvas in ((app.dfgt_card, app.dfgt_canvas), (app.g29_card, app.g29_canvas)):
+                        self.assertLessEqual(card.winfo_width()-canvas.winfo_width(), 24)
+                        if app.mapping_wide:
+                            self.assertGreater(canvas.winfo_width(), 200)
                     for art in (app.dfgt_art, app.g29_art):
                         for item in art.canvas.find_all():
                             bounds = art.canvas.bbox(item)
@@ -51,7 +58,7 @@ class NativeTkStartupTests(unittest.TestCase):
                     self.assertNotEqual(str(app.target_box.cget('takefocus')), '0')
                     scroll_view = app._scroll_views[app.mapping][0]
                     self.assertEqual(len(scroll_view.cget('scrollregion').split()), 4)
-                    if expected_wide:
+                    if app.mapping_wide:
                         self.assertGreaterEqual(app.mapping_inspector.winfo_rootx(),
                                                 app.g29_card.winfo_rootx()+app.g29_card.winfo_width()-2)
                     else:

@@ -11,9 +11,10 @@ def controls(model):
 
 
 class WheelArt:
-    def __init__(self, canvas, model, on_select, translate=None):
+    def __init__(self, canvas, model, on_select, translate=None, *, max_scale=0.68):
         self.canvas, self.model, self.on_select = canvas, model, on_select
         self.translate = translate or (lambda _key: None)
+        self.max_scale = max_scale
         self.active, self.selected, self.detected = set(), None, None
         self.canvas.bind('<Configure>', lambda event: self.draw(event.width, event.height))
         self.draw(430, 430)
@@ -21,7 +22,7 @@ class WheelArt:
     def draw(self, width, height):
         self.canvas.delete('all')
         self.parts = {}
-        scale = min(width, height)/500
+        scale = min(width, height, 500*self.max_scale)/500
         dx, dy = (width-500*scale)/2, (height-500*scale)/2
         for e in ET.parse(ASSETS/(self.model+'-front.svg')).getroot():
             kind = e.tag.rsplit('}', 1)[-1]
@@ -42,7 +43,9 @@ class WheelArt:
                 points = [xy(*p.split(',')) for p in a['points'].split()]
                 item = self.canvas.create_polygon(*[v for p in points for v in p], **opts)
             elif kind == 'text':
-                label = self.translate(a.get('data-ui-key')) if a.get('data-ui-key') else None
+                label = self._label(a, e.text)
+                if label is None:
+                    continue
                 item = self.canvas.create_text(*xy(a['x'], a['y']), text=label or e.text,
                     fill=a.get('fill', 'white'), font=('DejaVu Sans', max(6, round(float(a.get('font-size', 12))*scale)) ))
             else:
@@ -53,6 +56,24 @@ class WheelArt:
                 self.canvas.tag_bind(tag, '<Button-1>', lambda event, key=key: self.on_select(key))
                 self.parts.setdefault(key, []).append((item, kind, opts))
         self.highlight(self.active, self.selected, self.detected)
+
+    def _label(self, attributes, fallback):
+        key = attributes.get('data-control', '')
+        if key.startswith('axis:'):
+            return {'axis:steering': 'X', 'axis:accelerator': 'Y', 'axis:brake': 'Z'}[key]
+        if self.model == 'dfgt':
+            if key == 'key:292':
+                return 'P+'
+            if key == 'key:293':
+                return 'P−'
+            if key == 'key:301':
+                return 'H↑'
+            if key == 'key:300':
+                return 'H↓'
+        ui_key = attributes.get('data-ui-key')
+        if ui_key in ('wheel.shifter', 'wheel.shared_code', 'wheel.physical_footer', 'wheel.gear_outputs'):
+            return None
+        return self.translate(ui_key) if ui_key else fallback
 
     def highlight(self, active=(), selected=None, detected=None):
         self.active, self.selected, self.detected = set(active), selected, detected

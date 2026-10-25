@@ -60,6 +60,7 @@ class BridgeGUI:
         self.apply_theme()
         self.build_shell()
         self.sync_form()
+        self.update_home_summary()
         self._refresh_service_text()
         self.refresh()
         self.update_dirty()
@@ -76,8 +77,16 @@ class BridgeGUI:
         style.configure('TLabelFrame', background='#18222e', bordercolor='#354455')
         style.configure('TLabelFrame.Label', background='#18222e', foreground='#74d9c2')
         style.configure('TButton', background='#263646', foreground='#f1f5f9', padding=(9, 6))
+        style.configure('TButton', focuscolor='#fbbf24')
         style.map('TButton', background=[('active', '#344a5d'), ('disabled', '#1b2732')],
-                  foreground=[('disabled', '#7d8a96')])
+                  foreground=[('disabled', '#7d8a96')], relief=[('focus', 'solid')])
+        style.configure('Passive.TButton', background='#214d55', foreground='#e5fffb', padding=(11, 8))
+        style.map('Passive.TButton', background=[('active', '#2e6871'), ('focus', '#2e6871')])
+        style.configure('Physical.TButton', background='#70552e', foreground='#fff5df', padding=(11, 8))
+        style.map('Physical.TButton', background=[('active', '#896a39'), ('focus', '#896a39')])
+        style.configure('Stop.TButton', background='#7f3038', foreground='#fff1f2', padding=(11, 8))
+        style.map('Stop.TButton', background=[('active', '#a33d48'), ('focus', '#a33d48')])
+        style.configure('TScrollbar', width=16, troughcolor='#17212c', background='#53687a')
         style.configure('TEntry', fieldbackground='#1c2936', foreground='#f2f5f8', insertcolor='#ffffff')
         style.configure('TCombobox', fieldbackground='#1c2936', foreground='#f2f5f8', background='#263646')
         style.map('TCombobox', fieldbackground=[('readonly', '#1c2936')], foreground=[('readonly', '#f2f5f8')])
@@ -85,6 +94,7 @@ class BridgeGUI:
         style.configure('TNotebook.Tab', background='#202e3b', foreground='#b9c5d1', padding=(13, 8))
         style.map('TNotebook.Tab', background=[('selected', '#34515b')], foreground=[('selected', '#ffffff')])
         style.configure('TCheckbutton', background='#111923', foreground='#d8e1ea')
+        style.configure('TCheckbutton', focuscolor='#fbbf24')
         style.map('TCheckbutton', foreground=[('active', '#ffffff')])
 
     def t(self, key, **params):
@@ -111,6 +121,25 @@ class BridgeGUI:
     def tab(self, frame, key):
         self.tabs.add(frame, text=self.t(key))
         self._notebook_tabs.append((frame, key))
+
+    def scrollable_frame(self, parent, *, padding=0):
+        container = ttk.Frame(parent)
+        container.pack(fill='both', expand=True)
+        canvas = tk.Canvas(container, highlightthickness=0, background='#111923', takefocus=True)
+        scrollbar = ttk.Scrollbar(container, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        content = ttk.Frame(canvas, padding=padding)
+        window = canvas.create_window((0, 0), window=content, anchor='nw')
+        content.bind('<Configure>', lambda _event: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>', lambda event: canvas.itemconfigure(window, width=event.width))
+        canvas.bind('<Button-4>', lambda _event: canvas.yview_scroll(-1, 'units'))
+        canvas.bind('<Button-5>', lambda _event: canvas.yview_scroll(1, 'units'))
+        canvas.bind('<MouseWheel>', lambda event: canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units'))
+        canvas.bind('<Prior>', lambda _event: canvas.yview_scroll(-1, 'pages'))
+        canvas.bind('<Next>', lambda _event: canvas.yview_scroll(1, 'pages'))
+        return content
 
     def _variable(self, value='', *, boolean=False):
         variable = tk.BooleanVar(value=value) if boolean else tk.StringVar(value=value)
@@ -166,122 +195,246 @@ class BridgeGUI:
         self.tabs.select(self.home)
 
     def build_home(self, frame):
-        self.label(frame, 'home.eyebrow', style='Accent.TLabel').pack(anchor='w')
-        self.label(frame, 'home.title', font=('', 22, 'bold')).pack(anchor='w', pady=(3, 7))
-        self.label(frame, 'home.intro', wraplength=1000).pack(anchor='w', pady=(0, 18))
-        cards = ttk.Frame(frame);cards.pack(fill='x', pady=5)
-        overview = ttk.LabelFrame(cards, text=self.t('home.service'), padding=14);overview.pack(side='left', fill='both', expand=True, padx=(0, 8))
-        self._text_widgets.append((overview, 'home.service'))
+        self.label(frame, 'home.eyebrow', style='Accent.TLabel').grid(row=0, column=0, sticky='w')
+        self.label(frame, 'home.title', font=('', 21, 'bold')).grid(row=1, column=0, sticky='w', pady=(2, 4))
+        self.label(frame, 'home.intro', wraplength=1000).grid(row=2, column=0, sticky='w', pady=(0, 12))
+        cards = ttk.Frame(frame);cards.grid(row=3, column=0, sticky='ew')
+        overview = ttk.LabelFrame(cards, text=self.t('home.profile_card'), padding=12)
+        overview.grid(row=0, column=0, sticky='nsew', padx=(0, 8))
+        self._text_widgets.append((overview, 'home.profile_card'))
         self.profile_summary = tk.StringVar()
         self.ffb_summary = tk.StringVar()
-        ttk.Label(overview, textvariable=self.profile_summary, font=('', 12, 'bold')).pack(anchor='w', pady=4)
-        ttk.Label(overview, textvariable=self.ffb_summary).pack(anchor='w', pady=4)
+        ttk.Label(overview, textvariable=self.profile_summary, font=('', 13, 'bold')).pack(anchor='w', pady=(2, 5))
+        ttk.Label(overview, textvariable=self.ffb_summary, style='Accent.TLabel').pack(anchor='w', pady=3)
         self.service_summary = tk.StringVar(value=self.integration_state.get())
-        ttk.Label(overview, textvariable=self.service_summary, wraplength=600).pack(anchor='w', pady=8)
-        actions = ttk.LabelFrame(cards, text=self.t('home.service'), padding=14);actions.pack(side='left', fill='both', expand=True, padx=(8, 0))
-        self._text_widgets.append((actions, 'home.service'))
-        self.checkbutton(actions, 'home.auto_start', self.auto_start, self.set_auto_start).pack(anchor='w', pady=5)
-        self.button(actions, 'home.check', self.check_service).pack(anchor='w', pady=5)
-        self.button(actions, 'home.open_mapping', lambda: self.tabs.select(self.mapping)).pack(anchor='w', pady=5)
-        self.button(actions, 'home.open_settings', lambda: self.tabs.select(self.settings)).pack(anchor='w', pady=5)
-        self.label(frame, 'home.launch_option', wraplength=1000).pack(anchor='w', pady=(22, 10))
-        self.label(frame, 'diagnostics.no_motor', wraplength=1000).pack(anchor='w')
+        readiness = ttk.LabelFrame(cards, text=self.t('home.readiness'), padding=12)
+        readiness.grid(row=0, column=1, sticky='nsew', padx=(8, 0))
+        self._text_widgets.append((readiness, 'home.readiness'))
+        ttk.Label(readiness, textvariable=self.service_summary, wraplength=480, justify='left').pack(anchor='w', pady=(2, 8))
+        self.checkbutton(readiness, 'home.auto_start', self.auto_start, self.set_auto_start).pack(anchor='w', pady=(2, 4))
+        cards.columnconfigure(0, weight=1, uniform='home-card')
+        cards.columnconfigure(1, weight=1, uniform='home-card')
+        actions = ttk.LabelFrame(frame, text=self.t('home.quick_actions'), padding=12)
+        actions.grid(row=4, column=0, sticky='ew', pady=(12, 0))
+        self._text_widgets.append((actions, 'home.quick_actions'))
+        self.button(actions, 'home.open_mapping', lambda: self.tabs.select(self.mapping), width=24).pack(side='left', padx=(0, 7))
+        self.button(actions, 'home.open_settings', lambda: self.tabs.select(self.settings), width=24).pack(side='left', padx=7)
+        self.button(actions, 'home.check', self.check_service, width=24).pack(side='left', padx=7)
+        self.label(frame, 'home.launch_option', wraplength=1000).grid(row=5, column=0, sticky='w', pady=(12, 5))
+        self.label(frame, 'diagnostics.no_motor', wraplength=1000).grid(row=6, column=0, sticky='w')
+        frame.columnconfigure(0, weight=1)
 
     def build_setup(self, frame):
-        self.label(frame, 'settings.heading', font=('', 19, 'bold')).grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 7))
-        self.label(frame, 'settings.identity').grid(row=1, column=0, columnspan=3, sticky='w', pady=(0, 14))
-        self.label(frame, 'settings.strength').grid(row=2, column=0, sticky='w', pady=5)
+        frame = self.scrollable_frame(frame, padding=18)
+        self.label(frame, 'settings.heading', font=('', 19, 'bold')).grid(row=0, column=0, sticky='w', pady=(0, 8))
+        self.label(frame, 'settings.identity').grid(row=1, column=0, sticky='w', pady=(0, 12))
+
+        ffb = ttk.LabelFrame(frame, text=self.t('settings.ffb_panel'), padding=12)
+        ffb.grid(row=2, column=0, sticky='ew', pady=(0, 9))
+        self._text_widgets.append((ffb, 'settings.ffb_panel'))
+        self.label(ffb, 'settings.strength', font=('', 12, 'bold')).grid(row=0, column=0, sticky='w')
         self.form['ffb_strength'] = self._variable()
-        ttk.Entry(frame, textvariable=self.form['ffb_strength'], width=24).grid(row=2, column=1, sticky='w')
-        self.label(frame, 'settings.input').grid(row=3, column=0, sticky='w', pady=8)
+        ttk.Entry(ffb, textvariable=self.form['ffb_strength'], width=6, font=('', 20, 'bold'), justify='center').grid(row=0, column=1, sticky='w', padx=(14, 4))
+        ttk.Label(ffb, text='%').grid(row=0, column=2, sticky='w')
+        self.label(ffb, 'settings.strength_help', wraplength=600).grid(row=1, column=0, columnspan=3, sticky='w', pady=(5, 7))
+        self.advanced_open = False
+        self.advanced_button = self.button(ffb, 'settings.advanced_show', self.toggle_advanced)
+        self.advanced_button.grid(row=2, column=0, columnspan=3, sticky='w')
+        self.settings_advanced = ttk.Frame(ffb)
+        for row, (name, key) in enumerate((('ffb_max_strength', 'settings.maximum'),
+                                           ('ffb_polarity', 'settings.polarity'),
+                                           ('ffb_slew_rate', 'settings.slew'),
+                                           ('ffb_seconds', 'settings.duration'))):
+            self.label(self.settings_advanced, key).grid(row=row, column=0, sticky='w', padx=(3, 14), pady=3)
+            self.form[name] = self._variable()
+            ttk.Entry(self.settings_advanced, textvariable=self.form[name], width=18).grid(row=row, column=1, sticky='w', pady=3)
+
+        input_panel = ttk.LabelFrame(frame, text=self.t('settings.input_panel'), padding=12)
+        input_panel.grid(row=3, column=0, sticky='ew', pady=(0, 9))
+        self._text_widgets.append((input_panel, 'settings.input_panel'))
+        self.label(input_panel, 'settings.input_summary', wraplength=760).grid(row=0, column=0, sticky='w', pady=(0, 7))
+        self.input_details_open = False
+        self.input_details_button = self.button(input_panel, 'settings.input_details_show', self.toggle_input_details)
+        self.input_details_button.grid(row=1, column=0, sticky='w')
+        self.input_details = ttk.Frame(input_panel)
+        self.label(self.input_details, 'settings.input').grid(row=0, column=0, sticky='w', pady=(8, 3))
         if hasattr(self.source, 'trace_add'):
             self.source.trace_add('write', lambda *_: self.update_dirty())
-        ttk.Entry(frame, textvariable=self.source, width=65).grid(row=3, column=1, columnspan=2, sticky='we')
-        self.checkbutton(frame, 'settings.elevated', self.elevated, lambda: None).grid(row=4, column=0, columnspan=3, sticky='w')
-        row = ttk.Frame(frame);row.grid(row=5, column=0, columnspan=3, sticky='w', pady=12)
-        self.button(row, 'settings.passive_start', lambda: self.start(False)).pack(side='left')
-        self.button(row, 'settings.physical_start', lambda: self.start(True)).pack(side='left', padx=7)
-        self.button(row, 'settings.stop', self.stop).pack(side='left', padx=7)
-        self.button(row, 'settings.copy', self.copy_command).pack(side='left')
-        self.label(frame, 'settings.safety', wraplength=1050).grid(row=6, column=0, columnspan=3, sticky='w', pady=(6, 12))
-        advanced = ttk.LabelFrame(frame, text=self.t('settings.advanced'), padding=10);advanced.grid(row=7, column=0, columnspan=3, sticky='ew', pady=5)
-        self._text_widgets.append((advanced, 'settings.advanced'))
-        advanced_fields = (('ffb_max_strength', 'settings.maximum'), ('ffb_polarity', 'settings.polarity'),
-                           ('ffb_slew_rate', 'settings.slew'), ('ffb_seconds', 'settings.duration'))
-        for column, (name, key) in enumerate(advanced_fields):
-            self.label(advanced, key).grid(row=0, column=column, sticky='w', padx=5, pady=(0, 4))
-            self.form[name] = self._variable()
-            ttk.Entry(advanced, textvariable=self.form[name], width=15).grid(row=1, column=column, sticky='we', padx=5)
-        self.label(advanced, 'settings.axes_title').grid(row=2, column=0, columnspan=4, sticky='w', pady=(14, 6))
-        for col, (name, key) in enumerate((('steering', 'settings.steering'), ('accelerator', 'settings.accelerator'), ('brake', 'settings.brake'))):
-            cell = ttk.Frame(advanced);cell.grid(row=3, column=col, padx=5, sticky='w')
-            self.label(cell, key).pack(side='left')
+        ttk.Entry(self.input_details, textvariable=self.source, width=48).grid(row=1, column=0, sticky='ew')
+        self.checkbutton(self.input_details, 'settings.elevated', self.elevated, lambda: None).grid(row=2, column=0, sticky='w', pady=(4, 8))
+        self.label(self.input_details, 'settings.axes_title').grid(row=3, column=0, sticky='w', pady=(2, 6))
+        axis_grid = ttk.Frame(self.input_details);axis_grid.grid(row=4, column=0, sticky='ew')
+        for row, (name, key) in enumerate((('steering', 'settings.steering'), ('accelerator', 'settings.accelerator'), ('brake', 'settings.brake'))):
+            cell = ttk.Frame(axis_grid);cell.grid(row=row, column=0, sticky='w', pady=2)
+            self.label(cell, key, width=14).pack(side='left')
             source, inverse = self._variable(), self._variable(False, boolean=True)
             self.axis_form[name] = source, inverse
-            ttk.Combobox(cell, textvariable=source, values=('ABS_X', 'ABS_Y', 'ABS_Z'), state='readonly', width=8).pack(side='left', padx=4)
+            ttk.Combobox(cell, textvariable=source, values=('ABS_X', 'ABS_Y', 'ABS_Z'), state='readonly', width=9).pack(side='left', padx=(4, 8))
             self.checkbutton(cell, 'settings.invert', inverse, self.update_dirty).pack(side='left')
-        self.button(advanced, 'settings.apply_axes', self.apply_axes).grid(row=3, column=3, padx=8)
+        self.button(self.input_details, 'settings.apply_axes', self.apply_axes).grid(row=5, column=0, sticky='w', pady=(7, 4))
         self.form['gas_axis'], self.form['invert_gas'] = self._variable(), self._variable(False, boolean=True)
-        self.label(advanced, 'settings.gas_channel').grid(row=4, column=0, sticky='e', pady=(10, 0))
-        ttk.Combobox(advanced, textvariable=self.form['gas_axis'], values=('y', 'z', 'both'), state='readonly', width=8).grid(row=4, column=1, sticky='w', pady=(10, 0))
-        self.checkbutton(advanced, 'settings.extra_invert', self.form['invert_gas'], self.update_dirty).grid(row=4, column=2, columnspan=2, sticky='w', pady=(10, 0))
-        for name in ('gas_axis',):
-            self.form[name].trace_add('write', lambda *_: self.update_dirty())
-        frame.columnconfigure(2, weight=1)
+        self.label(self.input_details, 'settings.gas_channel').grid(row=6, column=0, sticky='w', pady=(7, 3))
+        ttk.Combobox(self.input_details, textvariable=self.form['gas_axis'], values=('y', 'z', 'both'), state='readonly', width=9).grid(row=7, column=0, sticky='w')
+        self.checkbutton(self.input_details, 'settings.extra_invert', self.form['invert_gas'], self.update_dirty).grid(row=8, column=0, sticky='w', pady=3)
+        self.form['gas_axis'].trace_add('write', lambda *_: self.update_dirty())
+
+        manual = ttk.LabelFrame(frame, text=self.t('settings.manual_panel'), padding=12)
+        manual.grid(row=4, column=0, sticky='ew', pady=(0, 8))
+        self._text_widgets.append((manual, 'settings.manual_panel'))
+        controls = ttk.Frame(manual);controls.grid(row=0, column=0, sticky='w')
+        self.button(controls, 'settings.passive_start', lambda: self.start(False), style='Passive.TButton', width=24).grid(row=0, column=0, padx=(0, 7), pady=3)
+        self.button(controls, 'settings.physical_start', lambda: self.start(True), style='Physical.TButton', width=24).grid(row=0, column=1, padx=7, pady=3)
+        self.button(controls, 'settings.stop', self.stop, style='Stop.TButton', width=24).grid(row=0, column=2, padx=7, pady=3)
+        self.button(controls, 'settings.copy', self.copy_command, width=24).grid(row=1, column=0, sticky='w', padx=(0, 7), pady=(6, 0))
+        self.label(manual, 'settings.passive_help', wraplength=480).grid(row=1, column=0, sticky='w', pady=(4, 0))
+        self.label(manual, 'settings.physical_help', wraplength=480).grid(row=2, column=0, sticky='w', pady=(2, 0))
+        self.label(manual, 'settings.stop_help', wraplength=480).grid(row=3, column=0, sticky='w', pady=(2, 0))
+        self.label(frame, 'settings.safety', wraplength=1000).grid(row=5, column=0, sticky='w', pady=(3, 0))
+        frame.columnconfigure(0, weight=1)
+
+    def toggle_advanced(self):
+        self.advanced_open = not self.advanced_open
+        if self.advanced_open:
+            self.settings_advanced.grid(row=3, column=0, columnspan=3, sticky='ew', pady=(8, 0))
+        else:
+            self.settings_advanced.grid_remove()
+        self.advanced_button.configure(text=self.t('settings.advanced_hide' if self.advanced_open else 'settings.advanced_show'))
+
+    def toggle_input_details(self):
+        self.input_details_open = not self.input_details_open
+        if self.input_details_open:
+            self.input_details.grid(row=2, column=0, sticky='ew')
+        else:
+            self.input_details.grid_remove()
+        self.input_details_button.configure(text=self.t('settings.input_details_hide' if self.input_details_open else 'settings.input_details_show'))
 
     def build_mapping(self, frame):
-        toolbar = ttk.Frame(frame);toolbar.pack(fill='x', pady=(0, 8))
+        content = self.scrollable_frame(frame, padding=8)
+        content.columnconfigure(0, weight=1)
+        toolbar = ttk.Frame(content);toolbar.grid(row=0, column=0, sticky='ew', pady=(0, 8))
         self.preset = self._variable()
         self.preset_box = ttk.Combobox(toolbar, textvariable=self.preset, values=self.preset_labels(), state='readonly', width=18)
         self.preset_box.pack(side='left')
         self.button(toolbar, 'mapping.apply', self.apply_preset).pack(side='left', padx=4)
-        self.button(toolbar, 'mapping.restore', self.restore).pack(side='left')
-        self.button(toolbar, 'mapping.monitor', self.connect).pack(side='left', padx=8)
-        self.button(toolbar, 'mapping.stop_monitor', self.disconnect).pack(side='left')
-        body = ttk.Frame(frame);body.pack(fill='both', expand=True)
-        wheels = ttk.Frame(body);wheels.pack(side='left', fill='both', expand=True)
-        for col, name in enumerate(('dfgt', 'g29')):
-            canvas = tk.Canvas(wheels, width=360, height=350, bg='#111923', highlightthickness=0)
-            canvas.grid(row=0, column=col, sticky='nsew', padx=3, pady=3)
-            wheels.columnconfigure(col, weight=1)
-            art = WheelArt(canvas, name, self.physical_select if name == 'dfgt' else self.select, self.t)
-            setattr(self, name+'_art', art)
-        wheels.rowconfigure(0, weight=1)
-        side = ttk.Frame(body);side.pack(side='right', fill='y')
-        scroll = tk.Canvas(side, width=290, height=390, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(side, orient='vertical', command=scroll.yview)
-        scroll.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side='right', fill='y');scroll.pack(side='left', fill='y', expand=True)
-        detail = ttk.Frame(scroll, padding=8);scroll.create_window(0, 0, window=detail, anchor='nw')
-        detail.bind('<Configure>', lambda event: scroll.configure(scrollregion=scroll.bbox('all')))
-        self.label(detail, 'mapping.target').pack(anchor='w')
+        self.button(toolbar, 'mapping.restore', self.restore).pack(side='left', padx=(0, 8))
+        self.button(toolbar, 'mapping.monitor', self.connect, style='Passive.TButton').pack(side='left', padx=4)
+        self.button(toolbar, 'mapping.stop_monitor', self.disconnect).pack(side='left', padx=4)
+
+        self.mapping_layout = ttk.Frame(content)
+        self.mapping_layout.grid(row=1, column=0, sticky='nsew')
+        self.mapping_wide = None
+        self.mapping_layout.bind('<Configure>', self._layout_mapping)
+        self.mapping_layout.columnconfigure(0, weight=1, uniform='wheel')
+        self.mapping_layout.columnconfigure(1, weight=1, uniform='wheel')
+
+        self.dfgt_card = ttk.LabelFrame(self.mapping_layout, text=self.t('mapping.physical_wheel'), padding=6)
+        self.g29_card = ttk.LabelFrame(self.mapping_layout, text=self.t('mapping.virtual_wheel'), padding=6)
+        self._text_widgets.extend(((self.dfgt_card, 'mapping.physical_wheel'), (self.g29_card, 'mapping.virtual_wheel')))
+        self.dfgt_canvas = tk.Canvas(self.dfgt_card, width=300, height=270, bg='#111923', highlightthickness=0, takefocus=True)
+        self.g29_canvas = tk.Canvas(self.g29_card, width=300, height=270, bg='#111923', highlightthickness=0, takefocus=True)
+        self.dfgt_canvas.pack(fill='both', expand=True)
+        self.g29_canvas.pack(fill='both', expand=True)
+        self.dfgt_art = WheelArt(self.dfgt_canvas, 'dfgt', self.physical_select, self.t, max_scale=0.68)
+        self.g29_art = WheelArt(self.g29_canvas, 'g29', self.select, self.t, max_scale=0.68)
+
+        self.mapping_inspector = ttk.LabelFrame(self.mapping_layout, text=self.t('mapping.inspector'), padding=10)
+        self._text_widgets.append((self.mapping_inspector, 'mapping.inspector'))
+        self.mapping_inspector.columnconfigure(0, weight=1)
+        self.label(self.mapping_inspector, 'mapping.target').grid(row=0, column=0, sticky='w', pady=(0, 3))
         self.target = self._variable()
-        self.target_box = ttk.Combobox(detail, textvariable=self.target, values=self.target_labels(), state='readonly', width=24)
-        self.target_box.pack(fill='x')
+        self.target_box = ttk.Combobox(self.mapping_inspector, textvariable=self.target, values=self.target_labels(), state='readonly', width=32)
+        self.target_box.grid(row=1, column=0, sticky='ew')
         self.target_box.bind('<<ComboboxSelected>>', lambda _e: self.select(self.target_for_label(self.target.get())))
-        self.sources = tk.Listbox(detail, height=5, width=31, exportselection=False);self.sources.pack(fill='x', pady=6)
+
+        source_rows = ttk.Frame(self.mapping_inspector);source_rows.grid(row=2, column=0, sticky='nsew', pady=(8, 4))
+        source_rows.columnconfigure(0, weight=1)
+        self.sources = tk.Listbox(source_rows, height=4, width=42, exportselection=False, activestyle='dotbox')
+        source_y = ttk.Scrollbar(source_rows, orient='vertical', command=self.sources.yview)
+        source_x = ttk.Scrollbar(source_rows, orient='horizontal', command=self.sources.xview)
+        self.sources.configure(yscrollcommand=source_y.set, xscrollcommand=source_x.set)
+        self.sources.grid(row=0, column=0, sticky='nsew')
+        source_y.grid(row=0, column=1, sticky='ns')
+        source_x.grid(row=1, column=0, sticky='ew')
+        source_rows.rowconfigure(0, weight=1)
         self.sources.bind('<<ListboxSelect>>', self.select_source_row)
-        self.button(detail, 'mapping.remove', self.remove).pack(fill='x')
+        self.button(self.mapping_inspector, 'mapping.remove', self.remove).grid(row=3, column=0, sticky='ew', pady=(2, 5))
         self.detected = self._variable(self.t('mapping.detected_none'))
-        self.button(detail, 'mapping.detect', self.detect).pack(fill='x', pady=5)
-        self.detected_label = ttk.Label(detail, textvariable=self.detected, wraplength=265);self.detected_label.pack(fill='x')
+        self.button(self.mapping_inspector, 'mapping.detect', self.detect).grid(row=4, column=0, sticky='ew', pady=2)
+        self.detected_label = ttk.Label(self.mapping_inspector, textvariable=self.detected, wraplength=330, justify='left')
+        self.detected_label.grid(row=5, column=0, sticky='ew', pady=(2, 5))
         self.input_code = self._variable()
-        ttk.Entry(detail, textvariable=self.input_code).pack(fill='x', pady=4)
-        self.button(detail, 'mapping.add', self.add).pack(fill='x')
-        self.button(detail, 'mapping.dial_check', self.detect_dial).pack(fill='x', pady=4)
-        self.button(detail, 'mapping.dial_swap', self.swap_dial).pack(fill='x')
-        self.label(detail, 'mapping.gears').pack(anchor='w', pady=4)
+        ttk.Entry(self.mapping_inspector, textvariable=self.input_code).grid(row=6, column=0, sticky='ew', pady=3)
+        self.button(self.mapping_inspector, 'mapping.add', self.add).grid(row=7, column=0, sticky='ew', pady=2)
+        self.button(self.mapping_inspector, 'mapping.dial_check', self.detect_dial).grid(row=8, column=0, sticky='ew', pady=(6, 2))
+        self.button(self.mapping_inspector, 'mapping.dial_swap', self.swap_dial).grid(row=9, column=0, sticky='ew', pady=2)
+        self.label(self.mapping_inspector, 'mapping.gears').grid(row=10, column=0, sticky='w', pady=(8, 3))
         self.gear_down, self.gear_up = self._variable(self.t('target.button.2')), self._variable(self.t('target.button.1'))
         self.gear_boxes = []
-        for value in (self.gear_down, self.gear_up):
-            combo = ttk.Combobox(detail, textvariable=value, values=self.target_labels(), state='readonly', width=24)
-            combo.pack(fill='x');self.gear_boxes.append(combo)
+        gear_row = ttk.Frame(self.mapping_inspector);gear_row.grid(row=11, column=0, sticky='ew')
+        gear_row.columnconfigure(0, weight=1);gear_row.columnconfigure(1, weight=1)
+        for column, value in enumerate((self.gear_down, self.gear_up)):
+            combo = ttk.Combobox(gear_row, textvariable=value, values=self.target_labels(), state='readonly', width=16)
+            combo.grid(row=0, column=column, sticky='ew', padx=(0, 4) if column == 0 else (4, 0))
+            self.gear_boxes.append(combo)
         self.notes = self._variable()
-        ttk.Label(detail, textvariable=self.notes, wraplength=270).pack(fill='x', pady=8)
-        self.button(detail, 'mapping.conflicts', self.show_conflicts).pack(fill='x')
-        self.label(frame, 'mapping.axis_title').pack(anchor='w', pady=(8, 3))
+        self.notes_label = ttk.Label(self.mapping_inspector, textvariable=self.notes, wraplength=330, justify='left')
+        self.notes_label.grid(row=12, column=0, sticky='ew', pady=(7, 3))
+        self.button(self.mapping_inspector, 'mapping.conflicts', self.show_conflicts).grid(row=13, column=0, sticky='ew', pady=(3, 0))
+        self.mapping_inspector.bind('<Configure>', self._resize_inspector_text)
+
+        self.mapping_technical_open = False
+        self.mapping_technical_button = self.button(content, 'mapping.technical_show', self.toggle_mapping_technical)
+        self.mapping_technical = ttk.LabelFrame(content, text=self.t('mapping.technical'), padding=8)
+        self._text_widgets.append((self.mapping_technical, 'mapping.technical'))
+        self.label(self.mapping_technical, 'mapping.axis_title').pack(anchor='w', pady=(0, 3))
         self.live = self._variable()
-        self.live_label = ttk.Label(frame, textvariable=self.live, wraplength=1160);self.live_label.pack(fill='x', pady=5)
+        self.live_label = ttk.Label(self.mapping_technical, textvariable=self.live, wraplength=1120, justify='left')
+        self.live_label.pack(fill='x', pady=3)
+        self._layout_mapping()
+
+    def _layout_mapping(self, event=None):
+        width = event.width if event is not None else self.mapping_layout.winfo_width()
+        wide = width >= 1180
+        if wide == self.mapping_wide:
+            return
+        if self.mapping_wide is not None:
+            self.dfgt_card.grid_forget();self.g29_card.grid_forget();self.mapping_inspector.grid_forget()
+            self.mapping_technical_button.grid_forget();self.mapping_technical.grid_forget()
+        self.mapping_wide = wide
+        if wide:
+            self.mapping_layout.columnconfigure(0, weight=1, uniform='wheel', minsize=0)
+            self.mapping_layout.columnconfigure(1, weight=1, uniform='wheel', minsize=0)
+            self.mapping_layout.columnconfigure(2, weight=0, minsize=360)
+            self.dfgt_card.grid(row=0, column=0, sticky='nsew', padx=(0, 5), pady=(0, 6))
+            self.g29_card.grid(row=0, column=1, sticky='nsew', padx=5, pady=(0, 6))
+            self.mapping_inspector.grid(row=0, column=2, rowspan=2, sticky='nsew', padx=(7, 0))
+            self.mapping_technical_button.grid(row=1, column=0, columnspan=2, sticky='w', pady=(4, 0))
+            technical_row = 2
+        else:
+            self.mapping_layout.columnconfigure(0, weight=1, uniform='wheel', minsize=0)
+            self.mapping_layout.columnconfigure(1, weight=1, uniform='wheel', minsize=0)
+            self.mapping_layout.columnconfigure(2, weight=0, minsize=0)
+            self.dfgt_card.grid(row=0, column=0, sticky='nsew', padx=(0, 4), pady=(0, 5))
+            self.g29_card.grid(row=0, column=1, sticky='nsew', padx=(4, 0), pady=(0, 5))
+            self.mapping_inspector.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(5, 7))
+            self.mapping_technical_button.grid(row=2, column=0, columnspan=2, sticky='w', pady=(4, 0))
+            technical_row = 3
+        if self.mapping_technical_open:
+            self.mapping_technical.grid(row=technical_row, column=0, columnspan=2, sticky='ew', pady=(4, 0))
+
+    def _resize_inspector_text(self, event):
+        wrap = max(220, event.width-28)
+        self.detected_label.configure(wraplength=wrap)
+        self.notes_label.configure(wraplength=wrap)
+
+    def toggle_mapping_technical(self):
+        self.mapping_technical_open = not self.mapping_technical_open
+        self.mapping_technical_button.configure(text=self.t('mapping.technical_hide' if self.mapping_technical_open else 'mapping.technical_show'))
+        if self.mapping_technical_open:
+            row = 2 if self.mapping_wide else 3
+            self.mapping_technical.grid(row=row, column=0, columnspan=2, sticky='ew', pady=(4, 0))
+        else:
+            self.mapping_technical.grid_forget()
 
     def build_diagnostics(self, frame):
         self.label(frame, 'diagnostics.title', font=('', 19, 'bold')).pack(anchor='w', pady=(0, 8))
@@ -308,6 +461,9 @@ class BridgeGUI:
         for frame, key in self._notebook_tabs:
             self.tabs.tab(frame, text=self.t(key))
         self.preset_box.configure(values=self.preset_labels())
+        self.advanced_button.configure(text=self.t('settings.advanced_hide' if self.advanced_open else 'settings.advanced_show'))
+        self.input_details_button.configure(text=self.t('settings.input_details_hide' if self.input_details_open else 'settings.input_details_show'))
+        self.mapping_technical_button.configure(text=self.t('mapping.technical_hide' if self.mapping_technical_open else 'mapping.technical_show'))
         self.dfgt_art.translate = self.t
         self.g29_art.translate = self.t
         self.dfgt_art.draw(self.dfgt_art.canvas.winfo_width(), self.dfgt_art.canvas.winfo_height())

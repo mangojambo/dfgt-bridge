@@ -180,7 +180,7 @@ class LauncherTests(unittest.TestCase):
         factory.assert_not_called()
         self.assertEqual(self.spawn.call_args.args[0],['proton','game arg'])
         self.assertEqual(self.spawn.call_args.kwargs['env'],dict(os.environ))
-        info.assert_called_once_with('Integração desativada explicitamente pelo usuário; jogo sem bridge')
+        info.assert_called_once_with('Jogo iniciado sem DFGT Bridge')
 
     def test_device_detection_checks_stable_link_and_sysfs_identity_read_only(self):
         with tempfile.TemporaryDirectory() as temp:

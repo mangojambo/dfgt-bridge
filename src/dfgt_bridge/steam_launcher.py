@@ -148,7 +148,7 @@ def run_game(command, *, settings, client_factory=ControlClient, spawn=subproces
                     raise RuntimeError('Bridge perdeu prontidão durante autorização EVDEV')
             logging.info('Bridge [PRONTO]: %s', response.get('binding'))
         else:
-            logging.info('Integração desativada explicitamente pelo usuário; jogo sem bridge')
+            logging.info('Jogo iniciado sem DFGT Bridge')
         if not command:  # Teste de prontidão passivo, sem iniciar jogo/motor.
             print('[PRONTO] teste passivo, sem motor: '+json.dumps(response.get('binding'), sort_keys=True))
             return 0

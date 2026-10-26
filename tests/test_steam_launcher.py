@@ -1,5 +1,6 @@
 """Integração Steam offline; nenhum comando físico/systemd real é executado."""
 import copy
+import io
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,8 @@ from unittest.mock import Mock, patch
 from test_ffb_audit import ROOT
 from steam_fakes import READY, FakeProc, FakeRunner
 from dfgt_bridge.config import default_profile, ProfileStore
-from dfgt_bridge.steam_launcher import run_game, GameTree, IntegrationSettings
+from dfgt_bridge.steam_launcher import (run_game, GameTree, IntegrationSettings, main,
+    dfgt_connected, DFGT_INPUT, DFGT_MISSING_MESSAGE)
 
 
 class LauncherTests(unittest.TestCase):
@@ -111,6 +113,135 @@ class LauncherTests(unittest.TestCase):
             spawn=self.spawn,proc=self.proc,clock=lambda:self.now,sleep=self.sleep)
         self.assertEqual(code,0);factory.assert_not_called()
         self.assertEqual(self.spawn.call_args.args[0],['game','a b'])
+
+    def test_disabled_bridge_preserves_proton_and_other_environment(self):
+        with patch.dict(os.environ, {'PROTON_ENABLE_HIDRAW':'user-value','STEAM_COMPAT_DATA_PATH':'/prefix here'}):
+            run_game(['game','a b'],settings=None,automatic=False,client_factory=Mock(side_effect=AssertionError),
+                spawn=self.spawn,proc=self.proc,clock=lambda:self.now,sleep=self.sleep)
+        env=self.spawn.call_args.kwargs['env']
+        self.assertEqual(env['PROTON_ENABLE_HIDRAW'],'user-value')
+        self.assertEqual(env['STEAM_COMPAT_DATA_PATH'],'/prefix here')
+
+    def test_game_exit_code_is_returned_without_bridge(self):
+        self.process.poll.return_value=23
+        self.process.wait.return_value=23
+        self.assertEqual(run_game(['game'],settings=None,automatic=False,client_factory=Mock(),
+            spawn=self.spawn,proc=self.proc,clock=lambda:self.now,sleep=self.sleep),23)
+
+    def _main(self, args, *, detected, run_side_effect=None, run_return=0, enabled=True,
+              profile_factory=None):
+        temp=tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        class Preferences:
+            def __init__(self, path=None): self.path=Path(temp.name)/'integration.json'
+            def enabled(self): return enabled
+        class Profiles:
+            def __init__(self, path=None): self.path=Path(temp.name)/'profiles.json'
+            def load(self, name): return default_profile()
+        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME':temp.name}))
+        self.enterContext(patch('os.geteuid',return_value=1000))
+        self.enterContext(patch('signal.signal',return_value=signal.SIG_DFL))
+        detector_kwargs = ({'side_effect':detected} if isinstance(detected,(list,tuple)) or isinstance(detected,BaseException)
+                           else {'return_value':detected})
+        detector=self.enterContext(patch('dfgt_bridge.steam_launcher.dfgt_connected',**detector_kwargs))
+        self.enterContext(patch('dfgt_bridge.steam_launcher.IntegrationSettings',Preferences))
+        self.enterContext(patch('dfgt_bridge.steam_launcher.ProfileStore',Profiles if profile_factory is None else profile_factory))
+        launcher=self.enterContext(patch('dfgt_bridge.steam_launcher.run_game',return_value=run_return,
+                                          side_effect=run_side_effect))
+        return main(args), launcher, detector
+
+    def test_present_device_starts_automatic_bridge_for_original_argv(self):
+        command=['--','/proton path','waitforexitandrun','DiRT 5.exe','--option','value with spaces']
+        code, launcher, detector=self._main(command,detected=True,run_return=17)
+        self.assertEqual(code,17)
+        detector.assert_called_once_with()
+        self.assertEqual(launcher.call_args.args[0],command[1:])
+        self.assertTrue(launcher.call_args.kwargs['automatic'])
+
+    def test_missing_device_skips_preferences_profile_and_bridge(self):
+        command=['--','proton','waitforexitandrun','game with spaces.exe','arg with spaces']
+        class Forbidden:
+            def __init__(self,*args,**kwargs): raise AssertionError('profile settings must not be read')
+        with patch('dfgt_bridge.steam_launcher.logging.info') as info:
+            code, launcher, _=self._main(command,detected=False,profile_factory=Forbidden,run_return=6)
+        self.assertEqual(code,6)
+        self.assertEqual(launcher.call_args.args[0],command[1:])
+        self.assertIsNone(launcher.call_args.kwargs['settings'])
+        self.assertFalse(launcher.call_args.kwargs['automatic'])
+        info.assert_any_call(DFGT_MISSING_MESSAGE)
+
+    def test_absent_device_fallback_uses_no_service_and_preserves_game_code(self):
+        self.process.poll.return_value=41;self.process.wait.return_value=41
+        factory=Mock(side_effect=AssertionError('service must not start'))
+        with patch('dfgt_bridge.steam_launcher.logging.info') as info:
+            result=run_game(['proton','game arg'],settings=None,automatic=False,client_factory=factory,
+                spawn=self.spawn,proc=self.proc,clock=lambda:self.now,sleep=self.sleep)
+        self.assertEqual(result,41)
+        factory.assert_not_called()
+        self.assertEqual(self.spawn.call_args.args[0],['proton','game arg'])
+        self.assertEqual(self.spawn.call_args.kwargs['env'],dict(os.environ))
+        info.assert_called_once_with('Integração desativada explicitamente pelo usuário; jogo sem bridge')
+
+    def test_device_detection_checks_stable_link_and_sysfs_identity_read_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);dev=root/'dev/input';sysfs=root/'sys/class/input';dev.mkdir(parents=True)
+            node=dev/'event12';node.touch()
+            stable=dev/'dfgt';stable.symlink_to(node)
+            ids=sysfs/'event12/device/id';ids.mkdir(parents=True)
+            (ids/'vendor').write_text('0x046d\n');(ids/'product').write_text('c29a\n')
+            self.assertTrue(dfgt_connected(stable,sysfs=sysfs,device_root=dev))
+            self.assertTrue(node.exists())
+            (ids/'product').write_text('c24f\n')
+            self.assertFalse(dfgt_connected(stable,sysfs=sysfs,device_root=dev))
+            stable.unlink()
+            self.assertFalse(dfgt_connected(stable,sysfs=sysfs,device_root=dev))
+
+    def test_detection_permission_error_is_not_device_absence(self):
+        with patch.object(Path,'resolve',side_effect=PermissionError(13,'denied')):
+            with self.assertRaises(PermissionError): dfgt_connected('/unreadable/link')
+
+    def test_service_failure_with_present_wheel_keeps_critical_diagnostic(self):
+        command=['--','proton','game']
+        failure=RuntimeError('PIDFF bind failed')
+        failure.bridge_startup_failure=True
+        stderr=self.enterContext(patch('sys.stderr',new_callable=io.StringIO))
+        code, launcher, detector=self._main(command,detected=True,run_side_effect=failure)
+        self.assertEqual(code,1)
+        launcher.assert_called_once()
+        self.assertTrue(launcher.call_args.kwargs['automatic'])
+        self.assertIn('PIDFF bind failed',stderr.getvalue())
+        detector.assert_called_once_with()
+
+    def test_startup_permission_failure_is_not_reclassified_as_unplug(self):
+        failure=PermissionError(13,'Permission denied')
+        failure.bridge_startup_failure=True
+        stderr=self.enterContext(patch('sys.stderr',new_callable=io.StringIO))
+        code, launcher, detector=self._main(['--','proton','game'],detected=[True,False],
+                                             run_side_effect=failure)
+        self.assertEqual(code,1)
+        launcher.assert_called_once()
+        self.assertIn('Permission denied',stderr.getvalue())
+        detector.assert_called_once_with()
+
+    def test_unplug_during_startup_falls_back_only_for_confirmed_missing_device(self):
+        failure=RuntimeError(f'origem=runner.io; caminho={DFGT_INPUT}; errno=2; No such file or directory')
+        failure.bridge_startup_failure=True
+        command=['--','proton','game arg']
+        with patch('sys.stderr',new_callable=io.StringIO):
+            code, launcher, detector=self._main(command,detected=[True,False],run_side_effect=[failure,0])
+        self.assertEqual(code,0)
+        self.assertEqual(detector.call_count,2)
+        self.assertEqual(launcher.call_count,2)
+        self.assertTrue(launcher.call_args_list[0].kwargs['automatic'])
+        self.assertFalse(launcher.call_args_list[1].kwargs['automatic'])
+        self.assertEqual(launcher.call_args_list[1].args[0],command[1:])
+
+    def test_check_ready_does_not_use_automatic_fallback_detection(self):
+        command=['--check-ready']
+        code, launcher, detector=self._main(command,detected=AssertionError('not run'),run_return=0,enabled=True)
+        self.assertEqual(code,0)
+        detector.assert_not_called()
+        self.assertTrue(launcher.call_args.kwargs['passive'])
 
     def test_wrapper_exit_does_not_end_session_before_game_and_proton_helpers(self):
         self.proc.values.update({100:dict(pid=100,uid=1000,ppid=55,ticks=101,comm='proton'),

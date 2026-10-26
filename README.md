@@ -78,6 +78,8 @@ Check readiness without starting DiRT 5:
 
 The readiness check creates the virtual G29 and verifies PIDFF/EVDEV; it does not authorize physical output. Run it with the wheel connected. The service will stop after the launcher closes.
 
+When Steam launches a game while the DFGT is unplugged, the launcher checks the stable input link and the device's read-only sysfs VID:PID before reading profiles or contacting the service. If the DFGT is absent, it logs `DFGT not connected — launching game without bridge` and starts the original Steam/Proton command without creating a virtual G29 or starting the FFB service. A disconnect during bridge startup uses this fallback only when the startup error identifies the missing DFGT and a second identity check confirms it is gone. Permission, PIDFF, service, and session errors remain visible failures. `--check-ready` remains an explicit diagnostic and still reports missing hardware.
+
 For an existing installation with a stale socket permission, close the game and reinstall from the updated checkout with `sudo ./install.sh`. This recreates the systemd units and socket while preserving the profile. Run `--check-ready` twice and confirm status returns to `idle` between runs before starting the game. See the [installation guide](docs/INSTALL.md) and [Steam integration notes](docs/STEAM_INTEGRATION.md).
 
 ## GUI and button presets

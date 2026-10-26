@@ -7,6 +7,7 @@ import math
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -16,6 +17,35 @@ from .config import ProfileStore, default_path
 from .startup_errors import operation
 from .steam_protocol import approved
 from .steam_protocol import ControlClient, ProcInfo, APPID, ready
+
+
+DFGT_INPUT = Path('/dev/input/by-id/usb-046d_Driving_Force_GT-event-joystick')
+DFGT_SYSFS_INPUT = Path('/sys/class/input')
+DFGT_MISSING_MESSAGE = 'DFGT not connected — launching game without bridge'
+
+
+def dfgt_connected(path=DFGT_INPUT, *, sysfs=DFGT_SYSFS_INPUT, device_root='/dev/input'):
+    """Read the stable input symlink and sysfs identity; never open the device node."""
+    try:
+        target = Path(path).resolve(strict=True)
+    except FileNotFoundError:
+        return False
+    if target.parent != Path(device_root).resolve() or not re.fullmatch(r'event[0-9]+', target.name):
+        return False
+    identity = Path(sysfs) / target.name / 'device' / 'id'
+    try:
+        vendor = (identity / 'vendor').read_text(encoding='ascii').strip()
+        product = (identity / 'product').read_text(encoding='ascii').strip()
+    except FileNotFoundError:
+        # A concurrent unplug can remove sysfs between symlink resolution and reads.
+        return False
+    return vendor.lower().removeprefix('0x') == '046d' and product.lower().removeprefix('0x') == 'c29a'
+
+
+def _is_dfgt_disconnect_startup_error(exc):
+    detail = str(exc)
+    return ('EOFError: DFGT desconectado' in detail or
+            (str(DFGT_INPUT) in detail and 'errno=2' in detail))
 
 
 class IntegrationSettings:
@@ -122,7 +152,9 @@ def run_game(command, *, settings, client_factory=ControlClient, spawn=subproces
         if not command:  # Teste de prontidão passivo, sem iniciar jogo/motor.
             print('[PRONTO] teste passivo, sem motor: '+json.dumps(response.get('binding'), sort_keys=True))
             return 0
-        env = dict(os.environ, PROTON_ENABLE_HIDRAW='0x046d/0xc24f')
+        env = dict(os.environ)
+        if automatic:
+            env['PROTON_ENABLE_HIDRAW'] = '0x046d/0xc24f'
         with operation("launcher.game.spawn"):
             process = spawn(list(command), env=env, start_new_session=True)
         tree = GameTree(process.pid, os.getuid(), identity['ticks'], proc=proc)
@@ -161,6 +193,15 @@ def run_game(command, *, settings, client_factory=ControlClient, spawn=subproces
         except subprocess.TimeoutExpired:
             tree.terminate(signal.SIGKILL)
             return 1
+    except Exception as exc:
+        # Preserve the original exception type. The entry point uses this marker
+        # only for a narrowly classified physical-device startup race.
+        if automatic and process is None:
+            try:
+                exc.bridge_startup_failure = True
+            except (AttributeError, TypeError):
+                pass
+        raise
     finally:
         if client:
             if acquired and not stopped:
@@ -215,6 +256,10 @@ def main(argv=None):
         command = args.command[1:] if args.command[:1] == ['--'] else args.command
         if not command and not args.check_ready: parser.error('Falta %command% após --')
         if args.check_ready and command: parser.error('--check-ready não aceita comando de jogo')
+        if command and not args.check_ready and not dfgt_connected():
+            logging.info(DFGT_MISSING_MESSAGE)
+            return run_game(command, settings=None, cancelled=lambda: cancel['value'], automatic=False,
+                            startup_timeout=args.game_start_timeout)
         preferences = IntegrationSettings(Path(args.profiles_file).with_name('integration.json') if args.profiles_file else None)
         with operation('launcher.integration.read', preferences.path):
             enabled = args.check_ready or preferences.enabled()
@@ -223,9 +268,17 @@ def main(argv=None):
             settings = store.load('dirt5')
         if enabled:
             settings = approved(settings)
-        return run_game(command, settings=settings,
-                        passive=args.check_ready, detailed=args.capture, cancelled=lambda: cancel['value'], automatic=enabled,
-                        startup_timeout=args.game_start_timeout)
+        try:
+            return run_game(command, settings=settings,
+                            passive=args.check_ready, detailed=args.capture, cancelled=lambda: cancel['value'], automatic=enabled,
+                            startup_timeout=args.game_start_timeout)
+        except (OSError, EOFError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+            if (not args.check_ready and getattr(exc, 'bridge_startup_failure', False) and
+                    _is_dfgt_disconnect_startup_error(exc) and not dfgt_connected()):
+                logging.info(DFGT_MISSING_MESSAGE)
+                return run_game(command, settings=None, cancelled=lambda: cancel['value'], automatic=False,
+                                startup_timeout=args.game_start_timeout)
+            raise
     except (OSError, EOFError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         if cancel['value']:
             logging.info('Sessão cancelada pela Steam/sinal')

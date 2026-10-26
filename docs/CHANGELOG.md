@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (candidate v1.0.1)
+
+- Let Steam launch the original game command without starting DFGT Bridge when the DFGT is absent; confirm hardware identity through the stable input link and read-only sysfs.
+- Handle a confirmed unplug during bridge startup while keeping permission, PIDFF, service, and session failures visible.
+- Preserve the Steam/Proton environment and argv in fallback mode; keep `--check-ready` as an explicit hardware diagnostic.
+
 ## v1.0.0 — 2026-10-25
 
 First public release.

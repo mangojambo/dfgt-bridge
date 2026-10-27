@@ -80,7 +80,7 @@ class GUITests(unittest.TestCase):
         self.store = ProfileStore(Path(self.directory)/'profiles.json')
         for name in ('Frame', 'Label', 'Button', 'Notebook', 'Combobox', 'Entry', 'Checkbutton', 'LabelFrame', 'Scrollbar'):
             self.enterContext(patch.object(gui.ttk, name, Widget))
-        for name in ('Canvas', 'Listbox', 'Text'):
+        for name in ('Canvas', 'Listbox', 'Text', 'Scale'):
             self.enterContext(patch.object(gui.tk, name, Widget))
         style = Mock();style.theme_names.return_value = ['clam']
         self.enterContext(patch.object(gui.ttk, 'Style', return_value=style))
@@ -102,6 +102,39 @@ class GUITests(unittest.TestCase):
         self.assertEqual(self.app.form['ffb_polarity'].get(), -1)
         self.assertEqual(self.app.form['ffb_slew_rate'].get(), 327670)
         self.assertEqual(self.app.form['ffb_seconds'].get(), 'unlimited')
+        self.assertEqual(float(self.app.form['ffb_spring_gain'].get()), 3.0)
+        self.assertEqual(self.app.spring_gain_display.get(), '×3.00')
+
+    def test_spring_slider_exposes_quarter_steps_and_saves_every_value_from_one_to_four(self):
+        options = self.app.spring_gain_slider.options
+        self.assertEqual((options['from_'], options['to'], options['resolution']), (1.0, 4.0, .25))
+        for index in range(13):
+            gain = 1.0 + index*.25
+            self.app.form['ffb_spring_gain'].set(str(gain))
+            self.app._spring_gain_changed(str(gain))
+            self.assertEqual(float(self.app._candidate()['ffb_spring_gain']), gain)
+            self.assertEqual(self.app.spring_gain_display.get(), f'×{gain:.2f}')
+            self.assertTrue(self.app.save())
+            self.assertEqual(self.store.load()['ffb_spring_gain'], gain)
+
+    def test_saved_spring_reopens_from_profile_and_active_runner_is_untouched(self):
+        profile = dict(default_profile(), ffb_spring_gain=3.5)
+        self.store.save('dirt5', profile)
+        self.app.load()
+        self.assertEqual(float(self.app.form['ffb_spring_gain'].get()), 3.5)
+        self.assertEqual(self.app.spring_gain_display.get(), '×3.50')
+        self.app.form['ffb_spring_gain'].set('4.0')
+        self.app._spring_gain_changed('4.0')
+        active = object()
+        self.app.process = active
+        self.assertTrue(self.app.save())
+        self.assertIs(self.app.process, active)
+        self.popen.assert_not_called()
+        self.assertEqual(self.store.load()['ffb_spring_gain'], 4.0)
+        reopened = gui.BridgeGUI(Widget(), self.store, wheel_factory=self.factory)
+        self.assertEqual(float(reopened.form['ffb_spring_gain'].get()), 4.0)
+        self.assertEqual(reopened.spring_gain_display.get(), '×4.00')
+        self.assertIsNone(reopened.process)
 
     def test_shell_builds_every_panel_in_its_frame_not_the_profile_identifier(self):
         self.assertIsInstance(self.app.home, Widget)

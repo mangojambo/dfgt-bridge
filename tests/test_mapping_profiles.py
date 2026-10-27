@@ -79,7 +79,8 @@ class ProfileTests(unittest.TestCase):
     def test_approved_defaults_are_shared_and_no_file_is_created_on_load(self):
         self.assertEqual(self.store.load(), default_profile())
         self.assertEqual(DEFAULTS, dict(ffb_strength=100, ffb_max_strength=100, ffb_polarity=-1,
-            ffb_slew_rate=327670, ffb_seconds=None, gas_axis='y', identity='g29', auto_pidff=True, invert_gas=False))
+            ffb_slew_rate=327670, ffb_seconds=None, ffb_spring_gain=3.0,
+            gas_axis='y', identity='g29', auto_pidff=True, invert_gas=False))
         self.assertFalse(self.store.path.exists())
 
     def test_profiles_round_trip_and_are_isolated_per_game(self):

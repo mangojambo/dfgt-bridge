@@ -38,7 +38,7 @@ O processo principal continua usando `PassiveSession`: entrada v0.8 → transpor
 
 Somente com `--enable-ffb`, `PhysicalClient` cria por `spawn` outro processo, que possui o fd de saída EVDEV e lê os teclados. Recebe os componentes **antes do ganho/teto do mock**, calculados pelo mesmo renderer; aplica a política `ConstantOutput` do núcleo com o perfil físico, e envia um único Constant ao DFGT. O ganho mock padrão de 20% não é multiplicado pelo ganho físico; o perfil normal físico usa 100%.
 
-IPC usa SOCK_SEQPACKET não bloqueante e crédito/ACK: no máximo **um frame em trânsito e um último valor local**, substituído por cálculos recentes. Não há fila de forças antigas. Gerações e timestamps são monotônicos; o consumidor não aceita a mesma geração ou o mesmo instante de cálculo como renovação válida. Mailboxes de status/comando são limitadas a 4096 bytes e usam seqlock sem espera no alvo x86_64; um escritor parado no meio da atualização não prende o leitor.
+IPC usa SOCK_SEQPACKET não bloqueante e crédito/ACK: no máximo **um frame em trânsito e um último valor local**, substituído por cálculos recentes. Não há fila de forças antigas. Gerações e timestamps são monotônicos; o consumidor não aceita a mesma geração ou o mesmo instante de cálculo como renovação válida. Frames/comandos são limitados a 4096 bytes; status, incluindo evidência de latch, a 16384 bytes. Mailboxes usam seqlock sem espera no alvo x86_64; um escritor parado no meio da atualização não prende o leitor.
 
 Stop/Reset/Disable/Pause/Free/CLOSE e transição para soma zero também avançam uma barreira independente do pacote pendente. Frames anteriores à barreira não podem restaurar força. Parada de um efeito interrompe o agregado e permite recompor os outros com um cálculo novo; não altera as fórmulas de mistura. A emergência de terminal tem uma barreira separada, que não se perde se outro comando substituir a mailbox.
 
@@ -63,13 +63,24 @@ Referências de implementação: [UAPI input.h](https://github.com/torvalds/linu
 | Slew físico | `--ffb-slew-rate`: padrão **327670 unidades/s**; escala completa em aproximadamente 0,1 s; dt limitado a 50 ms |
 | Prioridade | Zero, redução de teto e parada não aguardam slew/rate gate |
 | Atualização normal | No máximo 45 Hz; paradas e reduções de segurança podem antecipar |
-| Idade de cálculo | 100 ms sem avanço → stop e latch; chegada de PID não é heartbeat |
+| Idade de cálculo | 100 ms sem avanço com força ativa → stop e latch; com saída já parada → aguardar frame posterior ao timeout. PID não é heartbeat. |
 | Duração EVDEV | Cada replay tem no máximo 160 ms; renovar exige cálculo novo e recente |
 | Supervisor | Poll nominal de 5 ms; processo principal detecta status parado por 250 ms e encerra o filho |
 | Sessão física | **Ilimitada no perfil normal**; prazo 30..240 s somente por opção explícita; watchdog independente permanece |
 | Jogo | Aguardar processo DiRT5.exe; saída ou troca de identidade PID/starttime → stop e latch |
 
 O supervisor testa idade antes de operações EVDEV, inclusive entre upload e play. Um upload que retorna tarde não autoriza play antigo. O poll do watchdog **nunca** renova força: só um frame novo do renderer pode chegar a `ConstantOutput.tick()`. Efeitos HID infinitos continuam válidos enquanto o renderer avança, mesmo sem novos relatórios do jogo.
+
+Na candidata de desenvolvimento, [a espera transitória](FFB_TRANSIENT_WATCHDOG.md)
+exige geração nova, época atual, idade <100 ms e cálculo posterior ao timeout.
+Stop repetido sem mudança de estado não invalida continuamente frames novos.
+F9, perda do teclado, saída do jogo e falhas graves preservam latch.
+
+Ganhos independentes por família entram depois do renderer PID e antes da
+mistura final. Na versão v1.1.0, `ffb_spring_gain=3.0` é padrão;
+os demais ganhos são ×1. A reinstalação migra perfis antigos automaticamente
+e preserva valores personalizados explícitos. Não são necessários argumentos
+extras na Steam. Ver [calibração DFGT e migração](DFGT_CALIBRATION.md).
 
 O filho continua capaz de desligar quando o renderer principal trava ou recebe SIGSTOP. Se o próprio filho travar, a proteção restante é o replay finito no kernel; o pai também encerra um filho sem avanço. O agendamento de replay finito está em [ff-memless](https://github.com/torvalds/linux/blob/master/drivers/input/ff-memless.c). **O prazo real no kernel/driver/firmware Valve ainda precisa ser medido no ensaio físico**; estes são limites de software, não uma certificação de tempo real ou proteção contra falhas de USB/kernel/alimentação.
 
@@ -81,6 +92,8 @@ Exceção de dispositivo ou morte do supervisor encerra o runner com cleanup. Si
 
 | Controle | Efeito |
 |---|---|
+| F5 | Spring ×3 temporário, interpolação de 300 ms |
+| F6 | Spring ×4 temporário, interpolação de 300 ms |
 | F7 | Reduz teto físico em 5 pontos; mínimo zero |
 | F8 | Aumenta em 5 pontos até o teto configurado; não rearma emergência |
 | F9 | Stop imediato e latch; repetir F9 continua desligado |
@@ -90,6 +103,13 @@ Exceção de dispositivo ou morte do supervisor encerra o runner com cleanup. Si
 | `ffb-strength N` + Enter | Teto físico absoluto, 0..máximo configurado |
 | `ffb-status` + Enter | Snapshot do supervisor |
 | Ctrl+C / `quit` | Encerra tudo e remove o efeito |
+
+F5/F6 não salvam perfis, não reiniciam UHID e não rearmam latch. Repetição
+automática é ignorada. F9 é processado antes das demais teclas do mesmo lote.
+F10 distingue ganho selecionado/aplicado/associado ao comando, Spring antes e
+depois da calibração, pico e saturação da sessão e dos últimos cinco segundos.
+Definições, sincronização, conflitos e limites de Gaming Mode:
+[Spring em tempo real](LIVE_SPRING.md).
 
 Os teclados são abertos O_RDONLY e sem grab no processo físico. Assim as teclas não dependem do foco do DiRT 5. Por padrão são procurados aliases `*-event-kbd` em by-id/by-path, exigindo teclas de teclado e F7..F10 e eliminando aliases duplicados. `--keyboard-event /dev/input/eventN` seleciona um teclado explicitamente. Repetições e releases não alteram intensidade. SYN_DROPPED ou perda de um teclado causam emergência; após reconectar, reiniciar o runner para redescobri-lo.
 

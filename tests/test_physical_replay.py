@@ -1,5 +1,6 @@
 """Capturas sintéticas pareadas: mesmo PID/renderer e política física mock."""
 import copy
+from contextlib import closing
 import json
 from pathlib import Path
 import tempfile
@@ -24,10 +25,12 @@ class PhysicalReplayTests(unittest.TestCase):
         self.core_writer = CaptureWriter(self.core_path, self.session.metadata())
         self.addCleanup(self.core_writer.close)
         self.recorder = Recorder(self.session, self.core_writer)
-        self.config = dict(strength=10, maximum=20, polarity=-1, session_s=120, slew_per_s=16383.5)
+        # Explicit legacy unity baseline, including tests of old trace schemas.
+        self.config = dict(strength=10, maximum=20, polarity=-1, session_s=120,
+                           slew_per_s=16383.5, effect_gains={})
         self.policy = SupervisedPolicy(MockBackend(clock=lambda: self.policy.now_ns/1e9), **self.config)
         self.trace_writer = CaptureWriter(self.trace_path, dict(kind='physical_policy', config=self.config,
-                                          diagnostics_version=2,
+                                          diagnostics_version=8,
                                           implementation_sha256=implementation_hash()))
         self.addCleanup(self.trace_writer.close)
         self.now = 1_000_000
@@ -145,12 +148,170 @@ class PhysicalReplayTests(unittest.TestCase):
         rows[0]['metadata'].pop('diagnostics_version')
         for row in rows[1:]:
             row['result'].pop('force_pipeline')
+            row['result'].pop('safety_diagnostic')
+            row['result'].pop('transient_recovery')
+            row['result'].pop('effect_calibration')
+            row['result'].pop('spring_calibration')
+            row['result'].pop('command_statistics')
         self.rewrite(self.trace_path, rows)
         self.assertTrue(replay_physical(self.trace_path)['complete'])
         rows[3]['result']['evdev_level'] += 1
         self.rewrite(self.trace_path, rows)
         with self.assertRaisesRegex(ValueError, 'divergiu'):
             replay_physical(self.trace_path)
+
+    def test_v2_trace_without_latch_diagnostics_verifies_original_decisions(self):
+        self.race()
+        rows = [json.loads(line) for line in self.trace_path.read_text().splitlines()]
+        rows[0]['metadata']['diagnostics_version'] = 2
+        for row in rows[1:]:
+            row['result'].pop('safety_diagnostic')
+            row['result'].pop('transient_recovery')
+            row['result'].pop('effect_calibration')
+            row['result'].pop('spring_calibration')
+            row['result'].pop('command_statistics')
+        self.rewrite(self.trace_path, rows)
+        self.assertTrue(replay_physical(self.trace_path)['complete'])
+        rows[3]['result']['rejected'] += 1
+        self.rewrite(self.trace_path, rows)
+        with self.assertRaisesRegex(ValueError, 'divergiu'):
+            replay_physical(self.trace_path)
+
+    def test_v3_first_latch_evidence_cannot_be_omitted_or_modified(self):
+        self.race()
+        original = [json.loads(line) for line in self.trace_path.read_text().splitlines()]
+        index = next(i for i, row in enumerate(original[1:], 1)
+                     if row['result']['safety_diagnostic']['first_latch'])
+        for operation in ('omit', 'tamper'):
+            rows = copy.deepcopy(original)
+            if operation == 'omit':
+                rows[index]['result'].pop('safety_diagnostic')
+            else:
+                rows[index]['result']['safety_diagnostic']['first_latch']['trigger'] = 'invented'
+            self.rewrite(self.trace_path, rows)
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, 'divergiu'):
+                replay_physical(self.trace_path)
+
+    def test_v5_calibration_and_idle_recovery_evidence_cannot_be_omitted(self):
+        self.race()
+        original = [json.loads(line) for line in self.trace_path.read_text().splitlines()]
+        for key in ('effect_calibration', 'transient_recovery'):
+            rows = copy.deepcopy(original)
+            rows[3]['result'].pop(key)
+            self.rewrite(self.trace_path, rows)
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'divergiu'):
+                replay_physical(self.trace_path)
+
+    def test_calibrated_trace_replays_stop_idle_gap_and_fresh_recovery(self):
+        path = Path(self.directory)/'calibration.jsonl'
+        config = dict(strength=100, maximum=100, polarity=-1, session_s=None,
+                      slew_per_s=327670, effect_gains={'spring': 2})
+        policy = SupervisedPolicy(MockBackend(clock=lambda: policy.now_ns/1e9), **config)
+        with closing(CaptureWriter(path, dict(kind='physical_policy', config=config,
+                           diagnostics_version=8, implementation_sha256=implementation_hash()))) as writer:
+            def step(action, data, stamp):
+                value = policy.apply(action, data, stamp)
+                writer.append(dict(kind='physical_step', action=action, data=data,
+                              timestamp_ns=stamp, result=value))
+                return value
+            components = dict.fromkeys(('constant', 'spring', 'damper', 'periodic', 'friction', 'inertia', 'ramp'), 0)
+            components['spring'] = -2000
+            step('frame', dict(generation=1, calculated_ns=1, components=components), 1)
+            step('stop', dict(reason='PID_stop_reset_disable_or_close', epoch=1), 2)
+            step('poll', {}, 200_000_000)
+            value = step('frame', dict(generation=2, calculated_ns=201_000_000, stop_epoch=1,
+                                     components=components), 201_000_000)
+            self.assertEqual(value['evdev_level'], 4000)
+            self.assertEqual(value['transient_recovery']['recoveries'], 1)
+            value = step('close', {}, 202_000_000)
+            writer.append(dict(kind='footer', complete=True, result=value))
+        self.assertTrue(replay_physical(path)['complete'])
+
+    def test_missing_gain_config_keeps_historical_unity_two_and_current_three_defaults(self):
+        for version, gain in ((5, 1), (6, 2), (8, 3)):
+            path = Path(self.directory)/f'default-v{version}.jsonl'
+            config = dict(strength=100, maximum=100, polarity=-1, session_s=None, slew_per_s=327670)
+            policy = SupervisedPolicy(MockBackend(clock=lambda: policy.now_ns/1e9),
+                                      effect_gains={} if version == 5 else {'spring': 2} if version < 8 else None,
+                                      legacy_spring_keys=version < 8, **config)
+            with closing(CaptureWriter(path, dict(kind='physical_policy', config=config,
+                               diagnostics_version=version, implementation_sha256=implementation_hash()))) as writer:
+                components = dict.fromkeys(('constant', 'spring', 'damper', 'periodic', 'friction', 'inertia', 'ramp'), 0)
+                components['spring'] = -1000
+                frame = dict(generation=1, calculated_ns=1, components=components)
+                value = policy.apply('frame', frame, 1)
+                self.assertEqual(value['evdev_level'], gain*1000)
+                writer.append(dict(kind='physical_step', action='frame', data=frame, timestamp_ns=1, result=value))
+                value = policy.apply('close', {}, 2)
+                writer.append(dict(kind='physical_step', action='close', data={}, timestamp_ns=2, result=value))
+                writer.append(dict(kind='footer', complete=True, result=value))
+            self.assertTrue(replay_physical(path)['complete'])
+
+    def test_v8_live_selection_ramp_and_command_statistics_replay_strictly(self):
+        path = Path(self.directory)/'live-spring.jsonl'
+        config = dict(strength=100, maximum=100, polarity=-1, session_s=None,
+                      slew_per_s=327670, effect_gains={'spring': 1.25})
+        policy = SupervisedPolicy(MockBackend(clock=lambda: policy.now_ns/1e9), **config)
+        with closing(CaptureWriter(path, dict(kind='physical_policy', config=config,
+                           diagnostics_version=8, implementation_sha256=implementation_hash()))) as writer:
+            def step(action, data, stamp):
+                value = policy.apply(action, data, stamp)
+                writer.append(dict(kind='physical_step', action=action, data=data,
+                                   timestamp_ns=stamp, result=value))
+                return value
+            components = dict.fromkeys(('constant', 'spring', 'damper', 'periodic', 'friction', 'inertia', 'ramp'), 0)
+            components['spring'] = -1000
+            step('spring_select', dict(key='F6'), 0)
+            for generation in range(1, 14):
+                stamp = generation*25_000_000
+                value = step('frame', dict(generation=generation, calculated_ns=stamp, components=components), stamp)
+            self.assertEqual(value['evdev_level'], 4000)
+            step('stop', dict(reason='F9', latch=True), stamp+1)
+            step('spring_select', dict(key='F5'), stamp+2)
+            value = step('close', {}, stamp+3)
+            writer.append(dict(kind='footer', complete=True, result=value))
+        self.assertTrue(replay_physical(path)['complete'])
+        original = [json.loads(line) for line in path.read_text().splitlines()]
+        for key in ('spring_calibration', 'command_statistics'):
+            rows = copy.deepcopy(original)
+            rows[2]['result'].pop(key)
+            self.rewrite(path, rows)
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'divergiu'):
+                replay_physical(path)
+        rows = copy.deepcopy(original)
+        rows[-1]['result']['command_statistics']['session']['peak_abs_level'] += 1
+        self.rewrite(path, rows)
+        with self.assertRaisesRegex(ValueError, 'Resumo físico divergente'):
+            replay_physical(path)
+
+    def test_v7_trace_preserves_two_three_keys_and_original_saturation_groups(self):
+        path = Path(self.directory)/'historical-v7.jsonl'
+        config = dict(strength=100, maximum=100, polarity=-1, session_s=None,
+                      slew_per_s=327670, effect_gains={'spring': 4})
+        policy = SupervisedPolicy(MockBackend(clock=lambda: policy.now_ns/1e9), legacy_spring_keys=True, **config)
+        with closing(CaptureWriter(path, dict(kind='physical_policy', config=config,
+                           diagnostics_version=7, implementation_sha256=implementation_hash()))) as writer:
+            def step(action, data, stamp):
+                value = policy.apply(action, data, stamp)
+                writer.append(dict(kind='physical_step', action=action, data=data, timestamp_ns=stamp, result=value))
+                return value
+            components = dict.fromkeys(('constant', 'spring', 'damper', 'periodic', 'friction', 'inertia', 'ramp'), 0)
+            components['spring'] = -1000
+            generation = 1
+            stamp = 25_000_000
+            step('frame', dict(generation=generation, calculated_ns=stamp, components=components), stamp)
+            for key, expected in (('F5', 2), ('F6', 3)):
+                step('spring_select', dict(key=key), stamp)
+                for _ in range(12):
+                    generation += 1
+                    stamp += 25_000_000
+                    value = step('frame', dict(generation=generation, calculated_ns=stamp, components=components), stamp)
+                self.assertEqual(value['evdev_level'], expected*1000)
+                self.assertNotIn('4', value['command_statistics']['session_by_spring'])
+            self.assertGreater(value['command_statistics']['session_by_spring']['profile']['commands'], 0)
+            value = step('close', {}, stamp+1)
+            writer.append(dict(kind='footer', complete=True, result=value))
+        self.assertTrue(replay_physical(path)['complete'])
 
     def test_v2_diagnostics_cannot_be_omitted_or_tampered_to_hide_attenuation(self):
         self.race()

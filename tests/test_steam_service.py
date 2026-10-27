@@ -112,6 +112,16 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(self.factory.call_args.kwargs['physical'])
         self.assertFalse(self.factory.call_args.kwargs['detailed'])
 
+    def test_service_revalidates_and_forwards_explicit_dfgt_calibration(self):
+        profile = default_profile()
+        profile.pop('ffb_spring_gain')
+        profile['ffb_effect_gains'] = {'spring': 2}
+        self.request('start', profile='dirt5', mode='normal', settings=profile, detailed=False)
+        self.assertEqual(self.factory.call_args.args[0]['ffb_spring_gain'], 2.0)
+        self.assertEqual(self.factory.call_args.args[0]['ffb_effect_gains'], {})
+        self.assertEqual(self.factory.call_args.args[0]['ffb_strength'], 100)
+        self.assertEqual(self.factory.call_args.args[0]['ffb_polarity'], -1)
+
     def test_unlimited_session_remains_ready_while_valid_launcher_renews(self):
         self.start();runner=self.manager.runner;runner.state=copy.deepcopy(READY)
         for second in range(1,601):
@@ -170,12 +180,36 @@ class RootRunnerTests(unittest.TestCase):
         self.child.fileno.return_value=92
         self.parent.recvmsg.side_effect=BlockingIOError
         self.enterContext(patch('socket.socketpair',return_value=(self.parent,self.child)))
-    def make(self,physical=True,detailed=False):
-        return RootRunner(default_profile(),physical=physical,detailed=detailed,
+    def make(self,physical=True,detailed=False,profile=None):
+        return RootRunner(default_profile() if profile is None else profile,physical=physical,detailed=detailed,
             identity=dict(uid=1000,ticks=100),runtime='/trusted/runtime',log_dir=self.directory,run_dir=self.directory)
+
+    def test_live_spring_selection_needs_no_launcher_flags_or_private_profile_writes(self):
+        from dfgt_bridge.supervised import SupervisedPolicy
+        from dfgt_bridge.backends.mock import MockBackend
+        profile = dict(default_profile(), ffb_spring_gain=1.25, ffb_effect_gains={'damper': 1.5})
+        child = self.make(profile=profile)
+        path = child.directory/'profiles.json'
+        before = path.read_bytes()
+        saved = ProfileStore(path).load('dirt5')
+        for _ in range(2):
+            policy = SupervisedPolicy(MockBackend(), effect_gains=dict(saved['ffb_effect_gains'], spring=saved['ffb_spring_gain']))
+            self.assertEqual(policy.spring_selected, 1.25)
+            policy.apply('spring_select', dict(key='F6'), 0)
+            self.assertEqual(policy.spring_selected, 4)
+            policy.apply('spring_select', dict(key='F5'), 1)
+            self.assertEqual(policy.spring_selected, 3)
+            policy.apply('close', {}, 1)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIn('--enable-ffb', self.popen.call_args.args[0])
+        self.assertNotIn('--ffb-spring-gain', self.popen.call_args.args[0])
+        self.process.poll.return_value = 0
+        child.close()
 
     def test_root_child_is_fixed_hardware_runner_not_steam_or_user_code(self):
         value=self.make()
+        saved = json.loads((value.directory/'profiles.json').read_text())['profiles']['dirt5']
+        self.assertEqual(saved['ffb_spring_gain'], 3.0)
         command=self.popen.call_args.args[0];kwargs=self.popen.call_args.kwargs
         self.assertEqual(command[:4],['/usr/bin/python3','-I','-B','/trusted/runtime/src/dfgt_bridge/main.py'])
         self.assertIn('--enable-ffb',command);self.assertIn('--operational-log',command)

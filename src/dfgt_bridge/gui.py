@@ -239,9 +239,21 @@ class BridgeGUI:
         ttk.Entry(ffb, textvariable=self.form['ffb_strength'], width=6, font=('', 20, 'bold'), justify='center').grid(row=0, column=1, sticky='w', padx=(14, 4))
         ttk.Label(ffb, text='%').grid(row=0, column=2, sticky='w')
         self.label(ffb, 'settings.strength_help', wraplength=600).grid(row=1, column=0, columnspan=3, sticky='w', pady=(5, 7))
+        self.label(ffb, 'settings.spring_gain', font=('', 11, 'bold')).grid(row=2, column=0, sticky='w', pady=(5, 0))
+        self.form['ffb_spring_gain'] = self._variable()
+        self.spring_gain_display = tk.StringVar(value='×3.00')
+        self.spring_gain_slider = tk.Scale(
+            ffb, from_=1.0, to=4.0, resolution=0.25, orient=tk.HORIZONTAL,
+            showvalue=False, length=420, variable=self.form['ffb_spring_gain'],
+            command=self._spring_gain_changed, highlightthickness=0)
+        self.spring_gain_slider.grid(row=3, column=0, columnspan=2, sticky='w', pady=(0, 4))
+        ttk.Label(ffb, textvariable=self.spring_gain_display, style='Accent.TLabel',
+                  font=('', 14, 'bold')).grid(row=3, column=2, sticky='w', padx=(8, 0))
+        self.label(ffb, 'settings.spring_gain_help', wraplength=760).grid(
+            row=4, column=0, columnspan=3, sticky='w', pady=(0, 7))
         self.advanced_open = False
         self.advanced_button = self.button(ffb, 'settings.advanced_show', self.toggle_advanced)
-        self.advanced_button.grid(row=2, column=0, columnspan=3, sticky='w')
+        self.advanced_button.grid(row=5, column=0, columnspan=3, sticky='w')
         self.settings_advanced = ttk.Frame(ffb)
         for row, (name, key) in enumerate((('ffb_max_strength', 'settings.maximum'),
                                            ('ffb_polarity', 'settings.polarity'),
@@ -300,7 +312,7 @@ class BridgeGUI:
     def toggle_advanced(self):
         self.advanced_open = not self.advanced_open
         if self.advanced_open:
-            self.settings_advanced.grid(row=3, column=0, columnspan=3, sticky='ew', pady=(8, 0))
+            self.settings_advanced.grid(row=6, column=0, columnspan=3, sticky='ew', pady=(8, 0))
         else:
             self.settings_advanced.grid_remove()
         self.advanced_button.configure(text=self.t('settings.advanced_hide' if self.advanced_open else 'settings.advanced_show'))
@@ -509,7 +521,7 @@ class BridgeGUI:
         value = copy.deepcopy(self.editor.profile)
         for name, variable in self.form.items():
             raw = variable.get()
-            value[name] = (duration(raw) if name == 'ffb_seconds' else float(raw) if name == 'ffb_slew_rate'
+            value[name] = (duration(raw) if name == 'ffb_seconds' else float(raw) if name in ('ffb_slew_rate', 'ffb_spring_gain')
                            else int(raw) if name.startswith('ffb_') else raw)
         for name, (source, inverse) in self.axis_form.items():
             value['mapping']['axes'][name] = dict(source=('ABS_X', 'ABS_Y', 'ABS_Z').index(source.get()), invert=inverse.get())
@@ -582,6 +594,8 @@ class BridgeGUI:
         for name, variable in self.form.items():
             value = profile[name]
             variable.set('unlimited' if name == 'ffb_seconds' and value is None else value)
+        if hasattr(self, 'spring_gain_display'):
+            self.spring_gain_display.set(f"×{profile['ffb_spring_gain']:.2f}")
         self.preset.set(self.t('preset.'+profile['preset']))
         if profile['preset'] == 'gears':
             self.gear_down.set(self.t(target_key(profile['mapping']['bindings'].get('key:293', 'button:2'))))
@@ -592,6 +606,10 @@ class BridgeGUI:
 
     def collect(self):
         self.editor.commit(self._candidate())
+        self.update_dirty()
+
+    def _spring_gain_changed(self, value):
+        self.spring_gain_display.set(f'×{float(value):.2f}')
         self.update_dirty()
 
     def load(self):

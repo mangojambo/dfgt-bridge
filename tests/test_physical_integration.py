@@ -40,7 +40,8 @@ class PhysicalIntegrationTests(unittest.TestCase):
         factory = Mock(return_value=physical)
         self.execute(physical_factory=factory)
         self.assertTrue(factory.call_args.kwargs['enable_ffb'])
-        self.assertEqual(factory.call_args.kwargs['config'], dict(strength=10, maximum=20, polarity=1, session_s=120, require_game=True, slew_per_s=16383.5))
+        self.assertEqual(factory.call_args.kwargs['config'], dict(strength=10, maximum=20, polarity=1,
+            session_s=120, require_game=True, slew_per_s=16383.5, effect_gains={'spring': 3.0}))
         self.assertTrue(physical.frames)
         self.assertTrue(physical.closed)
         footer = json.loads(self.path.read_text().splitlines()[-1])
@@ -72,6 +73,15 @@ class PhysicalIntegrationTests(unittest.TestCase):
         self.assertEqual(factory.call_args.kwargs['config']['strength'], 100)
         self.assertEqual(factory.call_args.kwargs['config']['maximum'], 100)
         self.assertEqual(factory.call_args.kwargs['config']['slew_per_s'], 327670)
+
+    def test_effect_calibration_reaches_worker_without_changing_global_defaults(self):
+        self.args.enable_ffb = True
+        self.args.ffb_effect_gains = {'spring': 2, 'damper': 1.25}
+        factory = Mock(return_value=FakePhysical())
+        self.execute(physical_factory=factory)
+        self.assertEqual(factory.call_args.kwargs['config']['effect_gains'], self.args.ffb_effect_gains)
+        self.assertEqual(factory.call_args.kwargs['config']['strength'], self.args.ffb_strength)
+        self.assertTrue(factory.call_args.kwargs['enable_ffb'])
 
     def test_gui_control_eof_closes_runner_and_physical_client(self):
         from unittest.mock import patch

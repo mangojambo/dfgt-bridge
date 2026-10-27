@@ -232,3 +232,141 @@ same by-id device. References, descriptors, and force-feedback math were
 unchanged. Update steps and two passive probes are documented in
 STEAM_INTEGRATION.md. No service, device, or motor was started; native validation
 remains with the operator.
+
+## Diagnóstico de latch FFB (2026-10-26)
+
+Os F10 fornecidos confirmam saída travada com renderer ativo, mas o motivo
+original não pode ser recuperado dos snapshots: descartes de `stop_epoch`
+sobrescreviam `zero_reason`. O relatório [FFB_LATCH_DIAGNOSIS.md](FFB_LATCH_DIAGNOSIS.md)
+separa evidência real, hipóteses e reproduções sintéticas, incluindo uma
+tempestade com 1.947 rejeições e uma fronteira da política com pacote antigo.
+
+A candidata preserva a primeira entrada em latch, conta descartes por motivo,
+distingue F9 de keyboard loss e emite um evento compacto com contexto do worker
+e EVDEV. Frames de épocas invalidadas são descartados antes da validação de
+cálculo; não renovam watchdog nem escrevem força. A ordem reordenada desse
+teste não foi demonstrada no IPC FIFO real, portanto não identifica sozinha
+a causa do incidente. Watchdog de 100 ms, arm explícito, defaults, descritor e
+matemática permanecem preservados. Trace opcional v3 verifica também a evidência.
+
+**511 testes: 510 passaram, um smoke Tk ignorado sem display**; zero falhas
+esperadas. A suite passou também com audit hook contra dispositivos, drivers
+e subprocessos reais, sem tentativas; notificações do launcher são simuladas.
+Novos testes exercitam duas corridas, menu/loading, Pause/Continue,
+Disable/Enable, Stop/Free/Reset, barreiras e geração fresca. A v1.0.1 pública,
+release-checkout e referências não foram alteradas. Sem hardware, instalação
+ou push; a confirmação das transições no SteamOS segue pendente.
+
+## Recuperação após Stop e calibração DFGT (2026-10-26)
+
+Novo log real identifica watchdog com 105196896 ns após PID Stop, jogo ativo
+e saída já parada. A [correção transitória](FFB_TRANSIENT_WATCHDOG.md) aguarda
+geração nova, época atual e cálculo posterior ao timeout em repouso; watchdog
+com força ativa, F9 e falhas graves continuam exigindo arm humano. Stops sem
+mudança de estado deixam de avançar repetidamente a barreira.
+
+Ganhos físicos explícitos por família passam a existir no perfil compartilhado
+e CLI, depois do renderer PID e antes da mistura. Spring ×2 é o candidato de
+comparação; o padrão unitário preserva instalações existentes e exige seleção
+explícita. Não foi encontrado teto escondido de 7,7%: a amostra não basta para
+declarar erro da escala HID. A [análise, tabela e ensaio progressivo](DFGT_CALIBRATION.md)
+mostram aumento real de comando, clipping e limitações de equivalência física.
+FF_AUTOCENTER permanece zero e não se cria força sem efeito ativo do jogo.
+
+**538 testes: 537 passaram, um smoke Tk ignorado sem display**, zero falhas
+esperadas; execução protegida com audit hook contra dispositivos, drivers e
+subprocessos sem tentativas, ResourceWarning como erro. Nenhum teste físico,
+instalação, push ou publicação; v1.0.1 pública e referências preservadas.
+
+## Spring ×2 como padrão do desenvolvimento (2026-10-26)
+
+Por solicitação explícita do operador, `FFB_DEFAULTS['ffb_spring_gain']=2.0`.
+Perfis antigos sem Spring recebem ×2 na leitura. A reinstalação já lê, valida
+e salva o perfil `dirt5`, persistindo a migração antes da próxima sessão Steam,
+sem editar JSON ou acrescentar Launch Options. Valores personalizados em
+`ffb_effect_gains.spring` são migrados para o campo principal com o mesmo valor;
+valores novos explícitos também são preservados, inclusive ×0 e ×1. Duas
+representações conflitantes são rejeitadas antes de alterar a instalação.
+
+Os demais ganhos continuam ×1 por padrão e suas personalizações são
+preservadas. Launcher e serviço validam o Spring em 0..8 sem exigir igualdade
+com o default; continuam exigindo os demais parâmetros aprovados. A política
+física recebe ×2 por padrão, e traces v1..v5 conservam o default histórico ×1
+quando omitem calibração. Traces novos usam v6. Sem mudanças em renderer PID,
+F9/watchdog, ganho global, polaridade, slew, duração, descritor ou mapeamentos.
+
+**545 testes: 544 passaram, um smoke Tk ignorado sem display**. Reinstalações
+em diretório temporário verificam migração idempotente e preservação de
+personalizações e outros perfis. O caminho instalação → launcher → serviço →
+runner e o perfil privado do worker foram verificados com processos falsos.
+Execução com audit hook e ResourceWarning como erro: nenhuma tentativa de
+acesso real a dispositivos, drivers ou subprocessos. Não houve instalação no
+SteamOS, teste físico, push ou publicação. Uso normal e regras de migração:
+[DFGT_CALIBRATION.md](DFGT_CALIBRATION.md).
+
+## Comparação de Spring ao vivo por F5/F6 (2026-10-26)
+
+O listener readonly do worker físico reconhece F5=×2 e F6=×3, sem toggle,
+autorepeat ou gravação de perfil. O supervisor interpola em 300 ms, parte do
+último ganho aplicado ao cálculo quando troca de alvo e preserva slew/teto.
+Só frames novos, válidos e da época atual podem renovar força. Seleções
+não rearmam F9 ou habilitam atuadores desabilitados. F9/perda de teclado são
+processados antes de todas as outras teclas do mesmo lote.
+
+O produtor recebe um indicador compartilhado antes da seleção e deixa o
+worker avaliar cancelamentos com o ganho dinâmico. Barreira de Stop PID e de
+frames integralmente zerados continuam independentes de coalescing. Nenhum
+dispositivo UHID é reiniciado e o perfil configurado retorna na sessão nova.
+
+Uma linha `[FFB CALIBRATION]` registra cada seleção. F10 separa ganho alvo,
+ganho do cálculo e ganho associado ao comando, Spring antes/depois e nível
+EVDEV. Estatísticas limitadas contam comandos, pico, clipping e chegada ao
+teto, com totais e janela de cinco segundos separando ×2/×3/transições.
+Trace v7 verifica rampa e estatísticas no replay. Não há medições de torque.
+
+**569 testes: 568 passaram e um smoke Tk ignorado sem display**, zero falhas
+esperadas. A suite protegida contra dispositivos, drivers e subprocessos,
+com ResourceWarning como erro, teve zero tentativas. O status de 16 KiB e
+os frames de 4 KiB foram validados separadamente com pool cheio; não houve
+aumento do pacote de força. Referências e fixtures reais preservadas.
+
+Configuração KDE local contém Meta+F5/F6; seletores ignoram modificadores.
+Não foi comprovada ausência de conflitos no DiRT 5. Gaming Mode, teclado/Fn,
+atalhos do jogo e sensação mecânica exigem confirmação física pelo operador.
+Código, testes, campos, limites e fluxo após `sudo ./install.sh`:
+[LIVE_SPRING.md](LIVE_SPRING.md). Sem instalação real, motor, push ou release.
+
+## Comparação temporária Spring ×3/×4 (2026-10-26)
+
+Após o operador confirmar melhora de retorno ao centro com ×3, F5 passa a
+selecionar ×3 e F6 ×4. A interpolação de 300 ms, seleção direta sem autorepeat,
+F9, watchdog, épocas, slew e teto EVDEV permanecem. O perfil salvo/default
+continua ×2 no snapshot daquele commit; nenhuma seleção grava configuração. Ganhos 0..8 já são aceitos
+pelo launcher e serviço, sem alteração de limites.
+
+F10 mantém ×2 como referência e separa ×3, ×4 e transições nos totais e na
+janela de cinco segundos. Trace v8 registra os novos seletores; replay até
+v7 conserva F5=×2/F6=×3 e os grupos históricos, inclusive ganho ×4 como perfil.
+Os dados reais relatados e a comparação sintética com clipping estão em
+[LIVE_SPRING.md](LIVE_SPRING.md).
+
+**571 testes: 570 passaram e um smoke Tk ignorado sem display**, zero falhas
+esperadas. Cobertura inclui ×3/×4, interpolação/retargeting, saturação, F9,
+watchdog/PID, perfil salvo/restauração, serviço fake e replay compatível.
+Nenhuma instalação real, teste físico, push ou publicação executados.
+
+
+## Spring ×3 como padrão oficial v1.1.0 (2026-10-26)
+
+A seção anterior registra o snapshot de desenvolvimento ×2. Para v1.1.0, o
+padrão oficial passa a `ffb_spring_gain=3.0`: instalações novas e perfis sem
+ganho Spring explícito carregam ×3; migração pelo ProfileStore/instalador
+persiste esse valor. Campos Spring explícitos, inclusive o formato antigo
+`ffb_effect_gains.spring`, mantêm seu valor. A preferência pessoal ×3 não é
+incluída como perfil obrigatório. F5/F6 continuam temporários ×3/×4, enquanto
+a GUI salva ×1..×4 em passos de ×0,25 para a próxima sessão.
+
+Os demais ganhos, ganho global, polaridade, slew, duração, identidade,
+mapeamentos e proteções permanecem como aprovados. As observações SteamOS
+fornecidas pelo operador são relatadas nas notas v1.1.0; não são medições de
+torque nem promessa de equivalência com um G920.

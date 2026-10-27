@@ -19,6 +19,7 @@ from .passive import PassiveSession
 from .uhid_io import VirtualDevice
 from .pid_binding import PIDBinding, BindingError
 from .config import ProfileStore, DEFAULTS, duration
+from .ffb.effects import OUTPUT_COMPONENTS
 from .input.mapping import preset
 
 
@@ -74,6 +75,9 @@ def run(args, *, wheel_factory=PhysicalWheel, virtual_factory=VirtualDevice,
                            polarity=getattr(args, 'ffb_polarity', DEFAULTS['ffb_polarity']),
                            session_s=getattr(args, 'ffb_seconds', DEFAULTS['ffb_seconds']), require_game=True,
                            slew_per_s=getattr(args, 'ffb_slew_rate', DEFAULTS['ffb_slew_rate']))
+    physical_config['effect_gains'] = dict(
+        spring=getattr(args, 'ffb_spring_gain', DEFAULTS['ffb_spring_gain']))
+    physical_config['effect_gains'].update(getattr(args, 'ffb_effect_gains', None) or {})
     trace_path = getattr(args, 'physical_trace', None)
     if enable_ffb and not trace_path and args.capture:
         trace_path = args.capture + '.ffb.jsonl.gz'
@@ -320,6 +324,9 @@ def main(argv=None):
     parser.add_argument('--ffb-slew-rate', type=float, metavar='UNIDADES/S', help='Padrão: 327670 unidades/s')
     parser.add_argument('--ffb-polarity', type=int, choices=(-1, 1), help='Padrão oficial: -1')
     parser.add_argument('--ffb-seconds', type=str, metavar='unlimited|30..240', help='Padrão: unlimited')
+    for family in OUTPUT_COMPONENTS:
+        parser.add_argument(f'--ffb-{family}-gain', type=float, metavar='0..8',
+                            help=f'Multiplicador DFGT de {family}; padrão {2 if family == "spring" else 1}, independente do ganho global')
     parser.add_argument('--keyboard-event', help='Teclado evdev explícito; somente com --enable-ffb')
     parser.add_argument('--physical-trace', help='Trace da política física (replay só offline)')
     parser.add_argument('--game-pid', type=int, help='PID de DiRT5.exe; padrão: descobrir e supervisionar automaticamente')
@@ -338,6 +345,10 @@ def main(argv=None):
     try:
         store = ProfileStore(args.profiles_file)
         profile = store.load(args.profile)
+        for family in OUTPUT_COMPONENTS:
+            value = getattr(args, f'ffb_{family}_gain')
+            if value is not None and family != 'spring':
+                profile['ffb_effect_gains'][family] = value
         for name in DEFAULTS:
             value = getattr(args, name)
             if value is not None:
@@ -351,6 +362,7 @@ def main(argv=None):
         for name in DEFAULTS:
             setattr(args, name, profile[name])
         args.mapping = profile['mapping']
+        args.ffb_effect_gains = profile['ffb_effect_gains']
         args.preset = profile['preset']
     except (ValueError, OSError) as exc:
         parser.error(str(exc))

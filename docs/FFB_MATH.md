@@ -1,5 +1,9 @@
 # Convenções matemáticas do núcleo offline
 
+Atualização da candidata: a lei PID abaixo é preservada. A [calibração DFGT](DFGT_CALIBRATION.md)
+adiciona multiplicadores explícitos **depois** do renderer e antes da mistura
+física; não muda o descritor, as escalas de entrada ou os coeficientes recebidos.
+
 As referências v0.8/v0.13 e o descritor UHID permanecem congelados. Este documento descreve o pacote em `src/`, ainda sem conexão ao launcher ou ao hardware.
 
 ## Direção e eixo de saída

@@ -16,9 +16,11 @@ from contextlib import ExitStack
 from .capture import CaptureWriter, canonical, implementation_hash
 from .supervised import SupervisedPolicy
 from .ffb.safety import validate_percent
+from .ffb.mixer import calibrate_components
 from .config import FFB_DEFAULTS
 
 MAX_PACKET = 4096
+MAX_STATUS_PACKET = 16384  # Bounded evidence plus the full 40-effect diagnostic.
 
 
 def backend_diagnostic(backend):
@@ -29,14 +31,15 @@ def backend_diagnostic(backend):
 
 
 class Mailbox:
-    def __init__(self, ctx):
+    def __init__(self, ctx, capacity=MAX_PACKET):
+        self.capacity = capacity
         self.sequence = ctx.RawValue('Q', 0)
         self.size = ctx.RawValue('I', 0)
-        self.data = ctx.RawArray('B', MAX_PACKET)
+        self.data = ctx.RawArray('B', capacity)
 
     def write(self, value):
         encoded = canonical(value).encode()
-        if len(encoded) > MAX_PACKET:
+        if len(encoded) > self.capacity:
             raise ValueError('Mailbox físico excedeu limite')
         self.sequence.value += 1
         self.data[:len(encoded)] = encoded
@@ -45,7 +48,7 @@ class Mailbox:
 
     def read(self):
         sequence, size = self.sequence.value, self.size.value
-        if sequence & 1 or size == 0 or size > MAX_PACKET:
+        if sequence & 1 or size == 0 or size > self.capacity:
             return None
         raw = bytes(self.data[:size])
         if self.sequence.value != sequence:
@@ -53,22 +56,60 @@ class Mailbox:
         return json.loads(raw)
 
 
-def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, path, config, keyboard_path, trace_path, game_pid=None, game_scope=None):
+def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, path, config, keyboard_path, trace_path, game_pid=None, game_scope=None, dynamic_calibration=None):
     # Imports físicos somente no processo explicitamente autorizado.
     from .backends.evdev import EvdevBackend
     from .input.global_keys import GlobalKeys
     from .game_monitor import GameMonitor
     writer = backend = keys = policy = None
+    first_latch_io = None
     signals = {'stop': False, 'quit': False}
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, lambda *_: signals.update(quit=True))
     signal.signal(signal.SIGUSR1, lambda *_: signals.update(stop=True))
     channel.setblocking(False)
     error = None
+
+    def apply(action, data, now=None):
+        nonlocal first_latch_io
+        stamp = time.monotonic_ns() if now is None else now
+        before_events = policy.events
+        before_timeouts, before_recoveries = policy.idle_timeouts, policy.idle_recoveries
+        io_before = backend_diagnostic(backend)
+        if action == 'spring_select' and dynamic_calibration is not None:
+            dynamic_calibration.value = 1  # Publish before the worker changes its gain.
+        try:
+            value = policy.apply(action, data, stamp)
+        finally:
+            if policy.events > before_events:
+                context = dict(pid=os.getpid(), state='handling_' + action,
+                               observed_ns=time.monotonic_ns(),
+                               stop_epoch=stop_epoch.value, emergency_epoch=emergency_epoch.value,
+                               keyboards=len(keys.devices) if keys else 0,
+                               keyboard_errors=[str(e)[:160] for e in getattr(keys, 'errors', [])[-3:]],
+                               io_before=io_before, io_after=backend_diagnostic(backend))
+                if first_latch_io is None:
+                    first_latch_io = context
+                # One compact event per transition, including output exceptions.
+                print('[FFB LATCH] ' + canonical(dict(policy.last_latch, worker=context)), flush=True)
+        if policy.idle_timeouts > before_timeouts:
+            print('[FFB WAIT] ' + canonical(policy.last_idle_timeout), flush=True)
+        if policy.idle_recoveries > before_recoveries:
+            print('[FFB RESUME] ' + canonical(dict(timestamp_ns=stamp,
+                generation=policy.last_generation, calculated_ns=policy.last_valid_ns,
+                minimum_epoch=policy.minimum_epoch)), flush=True)
+        if action == 'spring_select':
+            print('[FFB CALIBRATION] ' + canonical(value['spring_calibration']['last_selection']), flush=True)
+        if writer:
+            writer.append(dict(kind='physical_step', action=action, data=data,
+                               timestamp_ns=stamp, result=value,
+                               io=backend_diagnostic(backend)))
+        return value
+
     try:
         if trace_path:
             writer = CaptureWriter(trace_path, dict(kind='physical_policy', config=config,
-                                   diagnostics_version=2,
+                                   diagnostics_version=8,
                                    implementation_sha256=implementation_hash(), physical_id=[0x046d, 0xc29a]))
         backend = EvdevBackend(path, enable_ffb=True)
         policy = SupervisedPolicy(backend, **config)
@@ -79,20 +120,11 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             print('[FFB] Teclas globais INDISPONÍVEIS. Terminal: ffb-stop; '
                   f'outro terminal: kill -USR1 {os.getpid()}', flush=True)
         else:
-            print('[FFB] Teclas globais F7/F8: -/+5%; F9: desligar (não alterna); '
+            print('[FFB] Teclas globais F5: Spring ×3; F6: Spring ×4 (300ms); F7/F8: -/+5%; F9: desligar (não alterna); '
                   'F10: diagnóstico. Reativar somente por ffb-arm no terminal.', flush=True)
         print(f'[FFB] Supervisor PID={os.getpid()}; teto inicial={config["strength"]}%, '
               f'máximo={config["maximum"]}%; slew={policy.output.slew_per_s} unidades/s; '
               f'sessão={"unlimited" if policy.output.test_limit_s is None else str(policy.output.test_limit_s)+"s"}.', flush=True)
-
-        def apply(action, data, now=None):
-            stamp = time.monotonic_ns() if now is None else now
-            value = policy.apply(action, data, stamp)
-            if writer:
-                writer.append(dict(kind='physical_step', action=action, data=data,
-                                   timestamp_ns=stamp, result=value,
-                                   io=backend_diagnostic(backend)))
-            return value
 
         def guard():
             if policy.last_valid_ns is None or time.monotonic_ns()-policy.last_valid_ns >= 100_000_000:
@@ -120,17 +152,25 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             if emergency_epoch.value != last_emergency:
                 last_emergency = emergency_epoch.value
                 apply('stop', dict(reason='terminal_emergency', latch=True))
-            for key in keys.read():
+            pressed = keys.read()
+            stop_reasons = iter(getattr(keys, 'stop_reasons', []))
+            # Emergency always wins over every other key in the same batch.
+            for key in pressed:
                 if key == 67:
-                    apply('stop', dict(reason='F9_or_keyboard_loss', latch=True))
-                    print('[FFB] F9: DESLIGADO; reativação exige ffb-arm no terminal.', flush=True)
+                    reason = next(stop_reasons, 'F9_or_keyboard_loss')
+                    apply('stop', dict(reason=reason, latch=True))
+                    print(f'[FFB] {reason}: DESLIGADO; reativação exige ffb-arm no terminal.', flush=True)
+            for key in pressed:
+                if key in (63, 64):
+                    apply('spring_select', dict(key='F5' if key == 63 else 'F6'))
                 elif key in (65, 66):
                     amount = policy.output.strength_percent + (5 if key == 66 else -5)
                     apply('strength', dict(percent=max(0, min(policy.output.max_strength_percent, amount))))
                     print(f'[FFB] Limite={policy.output.strength_percent}%, desligado={policy.latched}', flush=True)
                 elif key == 68:
-                    print('[FFB F10] ' + canonical(dict(policy.snapshot(),
-                          io=backend_diagnostic(backend))), flush=True)
+                    value = apply('poll', {})
+                    print('[FFB F10] ' + canonical(dict(value,
+                          first_latch_io=first_latch_io, io=backend_diagnostic(backend))), flush=True)
             command = commands.read()
             if command and command['nonce'] > last_command:
                 last_command = command['nonce']
@@ -157,9 +197,11 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
                 channel.send(b'ack')
             apply('poll', {})  # Só verifica idade/deadline; nunca renova força.
             status.write(dict(ready=True, at_ns=time.monotonic_ns(), pid=os.getpid(),
-                              keyboards=len(keys.devices), keyboard_errors=getattr(keys, 'errors', [])[-3:],
+                              keyboards=len(keys.devices),
+                              keyboard_errors=[str(e)[:160] for e in getattr(keys, 'errors', [])[-3:]],
                               game_identity=last_game,
                               io=backend_diagnostic(backend),
+                              first_latch_io=first_latch_io,
                               **policy.snapshot()))
             if writer and time.monotonic_ns()-last_flush >= 1_000_000_000:
                 writer.flush()
@@ -167,17 +209,15 @@ def worker(channel, status, commands, stop_epoch, emergency_epoch, quit_flag, pa
             time.sleep(.005)
     except BaseException as exc:
         error = type(exc).__name__ + ': ' + str(exc)
-        status.write(dict(ready=False, fatal=error[:512], at_ns=time.monotonic_ns()))
+        status.write(dict(policy.snapshot() if policy else {}, ready=False, fatal=error[:512],
+                          first_latch_io=first_latch_io, at_ns=time.monotonic_ns()))
     finally:
         try:
             if policy is not None and not policy.closed:
-                value = policy.apply('close', {}, time.monotonic_ns())
+                value = apply('close', {})
                 status.write(dict(ready=False, at_ns=time.monotonic_ns(), pid=os.getpid(),
+                                  first_latch_io=first_latch_io,
                                   **({'fatal': error[:512]} if error else {}), **value))
-                if writer:
-                    writer.append(dict(kind='physical_step', action='close', data={},
-                                       timestamp_ns=policy.now_ns, result=value,
-                                       io=backend_diagnostic(backend)))
             if writer:
                 writer.append(dict(kind='footer', complete=error is None,
                                    error=error, result=policy.snapshot() if policy else None))
@@ -199,18 +239,20 @@ class PhysicalClient:
         self.config = dict(config or dict(strength=FFB_DEFAULTS['ffb_strength'],
                           maximum=FFB_DEFAULTS['ffb_max_strength'], polarity=FFB_DEFAULTS['ffb_polarity'],
                           slew_per_s=FFB_DEFAULTS['ffb_slew_rate'], session_s=FFB_DEFAULTS['ffb_seconds']), require_game=True)
+        self.config.setdefault('effect_gains', {'spring': FFB_DEFAULTS['ffb_spring_gain']})
         # Validar antes de criar processo/fd usando somente o mock.
         from .backends.mock import MockBackend
         probe = SupervisedPolicy(MockBackend(), **self.config)
         probe.apply('close', {}, 0)
         ctx = multiprocessing.get_context('spawn')
-        self.status, self.commands = Mailbox(ctx), Mailbox(ctx)
+        self.status, self.commands = Mailbox(ctx, MAX_STATUS_PACKET), Mailbox(ctx)
         self.stop_epoch, self.emergency_epoch = ctx.RawValue('Q', 0), ctx.RawValue('Q', 0)
+        self.dynamic_calibration = ctx.RawValue('i', 0)
         self.quit_flag = ctx.RawValue('i', 0)
         self.channel, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self.channel.setblocking(False)
         self.process = ctx.Process(target=worker, args=(child, self.status, self.commands,
-                                   self.stop_epoch, self.emergency_epoch, self.quit_flag, path, self.config, keyboard_path, trace_path, game_pid, game_scope))
+                                   self.stop_epoch, self.emergency_epoch, self.quit_flag, path, self.config, keyboard_path, trace_path, game_pid, game_scope, self.dynamic_calibration))
         self.ready = False
         self.latest = None
         self.generation = self.coalesced = self.nonce = 0
@@ -218,6 +260,7 @@ class PhysicalClient:
         self.started_ns = time.monotonic_ns()
         self.closed = False
         self.last_zero = True
+        self.last_pid_command = None
         try:
             self.process.start()
         except BaseException:
@@ -265,11 +308,29 @@ class PhysicalClient:
         self.generation += 1
         info = result['info']
         packet = bytes.fromhex(info.get('packet_hex') or '')
-        urgent = (info.get('event_type') in (3, 5) or
-                  (info.get('report_type') == 1 and not result['error'] and packet and (
+        if (info.get('event_type') in (6, 13) and packet and
+                0x50 <= packet[0] <= 0x5d):
+            self.last_pid_command = dict(generation=self.generation,
+                calculated_ns=session.timestamp_ns, event_type=info['event_type'],
+                report_type=info.get('report_type'), packet_hex=packet[:18].hex(),
+                transport_error=str(result['error'])[:64] if result['error'] else None)
+        pid_stop = (info.get('report_type') == 1 and not result['error'] and packet and (
                    (packet[0] == 0x50 and packet[1] in (2, 3, 4, 5)) or packet[0] == 0x5b or
-                   (packet[0] == 0x5a and packet[2] == 3))))
-        zero = math.fsum(result['components'].values()) == 0
+                   (packet[0] == 0x5a and packet[2] == 3)))
+        # The live decoder exposes state transitions. Repeating an already
+        # applied Stop must not continually invalidate newer calculations.
+        # Older producers without transitions retain the conservative barrier.
+        pid_stop = pid_stop and ('transitions' not in result or bool(result['transitions']))
+        urgent = info.get('event_type') in (3, 5) or pid_stop
+        # Zero barriers must follow the same calibrated sum as the worker.
+        gains = getattr(self, 'config', {}).get('effect_gains')
+        if getattr(getattr(self, 'dynamic_calibration', None), 'value', 0):
+            # The worker alone owns the time-varying gain. Mandatory all-zero
+            # PID frames still cross the shared stop barrier. Cancellation
+            # between active families is evaluated on fresh frames by the worker.
+            zero = all(value == 0 for value in result['components'].values())
+        else:
+            zero = math.fsum(calibrate_components(result['components'], gains).values()) == 0
         urgent = urgent or (zero and not self.last_zero)
         self.last_zero = zero
         if urgent:
@@ -281,6 +342,7 @@ class PhysicalClient:
         value = dict(generation=self.generation, calculated_ns=session.timestamp_ns,
                      stop_epoch=self.stop_epoch.value,
                      components=result['components'], zero_reason=zero_reason,
+                     last_pid_command=getattr(self, 'last_pid_command', None),
                      game_force=dict(pid_gain=session.core.engine.gain,
                                      constant_levels=[[i, v['level']] for i, v in sorted(session.core.engine.effects.items())
                                                       if v['kind'] == 1 and v['running']]),

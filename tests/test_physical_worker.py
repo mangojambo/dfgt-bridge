@@ -46,6 +46,8 @@ class WorkerTests(unittest.TestCase):
         self.channel = Channel()
         self.status, self.commands = LocalMailbox(), LocalMailbox()
         self.epoch, self.emergency, self.quit = SimpleNamespace(value=0), SimpleNamespace(value=0), SimpleNamespace(value=0)
+        self.dynamic = SimpleNamespace(value=0)
+        self.end_ns = 200_000_000
         self.now = 0
         self.backend = MockBackend(clock=lambda: self.now/1e9)
         self.backend.close = Mock()
@@ -59,14 +61,27 @@ class WorkerTests(unittest.TestCase):
 
     def clock(self):
         self.now += 1_000_000
-        if self.now >= 200_000_000:
+        if self.now >= self.end_ns:
             self.quit.value = 1
         return self.now
 
-    def run_worker(self, require_game=False, strength=10, maximum=20):
+    def run_worker(self, require_game=False, strength=10, maximum=20, trace=True, effect_gains=None):
+        config = dict(strength=strength, maximum=maximum, polarity=1, session_s=120,
+                      require_game=require_game, slew_per_s=16383.5)
+        if effect_gains is not None:
+            config['effect_gains'] = effect_gains
         worker.worker(self.channel, self.status, self.commands, self.epoch, self.emergency,
-                      self.quit, 'fake', dict(strength=strength, maximum=maximum, polarity=1, session_s=120,
-                      require_game=require_game, slew_per_s=16383.5), None, str(self.path))
+                      self.quit, 'fake', config, None, str(self.path) if trace else None,
+                      dynamic_calibration=self.dynamic)
+
+    def continuous_spring_frames(self):
+        generation = 0
+        def receive(size):
+            nonlocal generation
+            generation += 1
+            return json.dumps(dict(generation=generation, calculated_ns=self.now, stop_epoch=self.epoch.value,
+                components={k: 1000 if k == 'spring' else 0 for k in OUTPUT_COMPONENTS})).encode()
+        self.channel.recv = receive
 
     def frame(self, generation=1, epoch=0):
         return json.dumps(dict(generation=generation, calculated_ns=1_000_000, stop_epoch=epoch,
@@ -82,6 +97,47 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(result['frames'], 1)
         self.assertGreaterEqual(result['summary']['safety_events'], 1)
         self.assertEqual(self.backend.level, 0)
+
+    def test_latch_is_logged_once_without_capture_and_survives_shutdown(self):
+        self.channel.messages = [self.frame()]
+        self.run_worker(trace=False)
+        self.assertFalse(self.path.exists())
+        lines = [line for line in self.stdout.getvalue().splitlines() if line.startswith('[FFB LATCH] ')]
+        self.assertEqual(len(lines), 1)
+        event = json.loads(lines[0][len('[FFB LATCH] '):])
+        self.assertEqual(event['trigger'], 'watchdog_calculation_stale')
+        self.assertEqual(event['category'], 'calculation')
+        self.assertGreaterEqual(event['age_ns'], 100_000_000)
+        self.assertEqual(event['worker']['state'], 'handling_poll')
+        self.assertIn('io_before', event['worker'])
+        self.assertIn('io_after', event['worker'])
+        self.assertEqual(self.status.value['safety_diagnostic']['first_latch']['timestamp_ns'], event['timestamp_ns'])
+        self.assertEqual(self.status.value['first_latch_io'], event['worker'])
+        self.assertEqual(self.status.value['zero_reason'], event['trigger'])
+
+    def test_idle_timeout_after_pid_stop_logs_wait_without_latching(self):
+        self.epoch.value = 1
+        frame = json.loads(self.frame(epoch=1))
+        frame['components'] = dict.fromkeys(OUTPUT_COMPONENTS, 0)
+        self.channel.messages = [json.dumps(frame).encode()]
+        self.run_worker()
+        value = self.status.value
+        self.assertFalse(value['latched'])
+        self.assertEqual(value['transient_recovery']['timeouts'], 1)
+        self.assertEqual(value['plays'], 0)
+        self.assertEqual(self.stdout.getvalue().count('[FFB WAIT]'), 1)
+        self.assertNotIn('[FFB LATCH]', self.stdout.getvalue())
+        self.assertTrue(replay_physical(self.path)['complete'])
+
+    def test_keyboard_failure_is_distinct_from_f9_in_original_latch(self):
+        self.keys.stop_reasons = ['keyboard_loss']
+        self.keys.errors = ['SYN_DROPPED']
+        self.keys.read.side_effect = [[67]] + [[]]*500
+        self.run_worker(trace=False)
+        event = self.status.value['safety_diagnostic']['first_latch']
+        self.assertEqual(event['trigger'], 'keyboard_loss')
+        self.assertEqual(event['category'], 'keyboard')
+        self.assertEqual(self.status.value['first_latch_io']['keyboard_errors'], ['SYN_DROPPED'])
 
     def test_keys_and_terminal_without_keyboard_both_stop_safely(self):
         self.keys.devices = {}
@@ -126,6 +182,65 @@ class WorkerTests(unittest.TestCase):
         self.assertIn('loss_percent', value['force_pipeline'])
         self.assertIn('last_io_ns', value['io'])
 
+    def test_f6_live_ramp_event_f10_and_privileged_game_path(self):
+        self.end_ns = 500_000_000
+        self.continuous_spring_frames()
+        flags = {'selected': False, 'diagnosed': False}
+        def read_keys():
+            if not flags['selected']:
+                flags['selected'] = True
+                return [64]
+            if self.now > 400_000_000 and not flags['diagnosed']:
+                flags['diagnosed'] = True
+                return [68]
+            return []
+        self.keys.read.side_effect = read_keys
+        game = SimpleNamespace(identity=(42, 123), identity_for=lambda _: (42, 123), poll=lambda _: (42, 123))
+        with patch('dfgt_bridge.game_monitor.GameMonitor', return_value=game):
+            self.run_worker(require_game=True, strength=100, maximum=100, effect_gains={'spring': 1.25})
+        lines = self.stdout.getvalue().splitlines()
+        events = [json.loads(line[len('[FFB CALIBRATION] '):]) for line in lines if line.startswith('[FFB CALIBRATION] ')]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['key'], 'F6')
+        self.assertEqual(events[0]['gain_previous'], 1.25)
+        self.assertEqual(events[0]['gain_requested'], 4)
+        self.assertEqual(events[0]['gain_applied'], 1.25)
+        self.assertTrue(events[0]['transition_active'])
+        self.assertFalse(events[0]['latched'])
+        f10 = next(json.loads(line[len('[FFB F10] '):]) for line in lines if line.startswith('[FFB F10] '))
+        self.assertEqual(f10['spring_calibration']['selected'], 4)
+        self.assertEqual(f10['spring_calibration']['applied'], 4)
+        self.assertEqual(f10['spring_calibration']['force_before'], 1000)
+        self.assertEqual(f10['spring_calibration']['force_after'], 4000)
+        self.assertEqual(f10['evdev_level'], 4000)
+        self.assertEqual(f10['command_statistics']['session']['peak_abs_level'], 4000)
+        self.assertGreater(f10['command_statistics']['session_by_spring']['4']['commands'], 0)
+        self.assertTrue(f10['game_running'])
+        self.assertTrue(f10['force_pipeline']['evdev_gain_expected'])
+        self.assertEqual(self.dynamic.value, 1)
+        self.assertTrue(replay_physical(self.path)['complete'])
+
+    def test_f9_precedes_f5_f6_and_f8_regardless_of_order_in_keyboard_batch(self):
+        self.continuous_spring_frames()
+        flags = {'stopped': False}
+        def read_keys():
+            if self.now > 30_000_000 and not flags['stopped']:
+                flags['stopped'] = True
+                return [64, 66, 67, 63, 68]
+            return []
+        self.keys.read.side_effect = read_keys
+        self.run_worker(strength=50, maximum=100)
+        events = [json.loads(line[len('[FFB CALIBRATION] '):]) for line in self.stdout.getvalue().splitlines()
+                  if line.startswith('[FFB CALIBRATION] ')]
+        self.assertEqual([e['key'] for e in events], ['F6', 'F5'])
+        self.assertTrue(all(e['latched'] and not e['output_enabled'] and e['evdev_level'] == 0 for e in events))
+        actions = self.backend.actions
+        stop = next(i for i, action in enumerate(actions) if action == ('write', (0x15, 7, 0)))
+        self.assertTrue(any(action == ('write', (0x15, 7, 1)) for action in actions[:stop]))
+        self.assertFalse(any(action == ('write', (0x15, 7, 1)) for action in actions[stop:]))
+        self.assertTrue(self.status.value['latched'])
+        self.assertEqual(self.status.value['strength'], 55)
+
     def test_stop_epoch_rejects_inflight_frame_from_before_reset(self):
         self.epoch.value = 2
         self.channel.messages = [self.frame(epoch=1)]
@@ -160,6 +275,17 @@ class WorkerTests(unittest.TestCase):
         self.assertIn('unplugged', self.status.value['fatal'])
         self.backend.close.assert_called_once()
         self.keys.close.assert_called_once()
+        self.assertTrue(self.channel.closed)
+        self.assertEqual(self.status.value['safety_diagnostic']['first_latch']['trigger'], 'output_exception')
+        self.assertIsNone(self.status.value['spring_calibration']['command_gain'])
+        self.assertIn('[FFB LATCH]', self.stdout.getvalue())
+
+    def test_keyboard_setup_exception_preserves_fatal_and_closes_policy(self):
+        with patch('dfgt_bridge.input.global_keys.GlobalKeys', side_effect=OSError('keyboard setup failed')):
+            self.run_worker(trace=False)
+        self.assertIn('keyboard setup failed', self.status.value['fatal'])
+        self.assertTrue(self.status.value['closed'])
+        self.backend.close.assert_called_once()
         self.assertTrue(self.channel.closed)
 
     def test_terminal_stop_is_independent_of_overwritten_command_mailbox(self):
@@ -235,6 +361,58 @@ class ClientTests(unittest.TestCase):
         self.client.publish(self.result, self.session)
         self.assertEqual(self.client.stop_epoch.value, 1)
         self.assertEqual(json.loads(self.client.latest)['stop_epoch'], 1)
+
+    def test_last_pid_command_survives_coalescing_with_input_and_tick_frames(self):
+        self.client.ready = False
+        self.result['info'] = dict(event_type=6, report_type=1, packet_hex='5004')
+        self.client.publish(self.result, self.session)
+        self.result['info'] = {}
+        self.session.timestamp_ns += 1
+        self.client.publish(self.result, self.session)
+        frame = json.loads(self.client.latest)
+        self.assertEqual(frame['last_pid_command']['packet_hex'], '5004')
+        self.assertEqual(frame['last_pid_command']['generation'], 1)
+        self.assertEqual(frame['last_pid_command']['calculated_ns'], 1_000_000_000)
+        self.assertEqual(frame['generation'], 2)
+        self.assertEqual(self.client.stop_epoch.value, 1)
+
+    def test_zero_barrier_uses_calibrated_sum_and_survives_coalescing(self):
+        self.client.config = {'effect_gains': {'spring': 2}}
+        self.client.ready = False
+        self.result['components'].update(spring=-1000, constant=1000)
+        self.client.publish(self.result, self.session)  # Raw zero, calibrated -1000.
+        self.assertEqual(self.client.stop_epoch.value, 0)
+        self.result['components']['constant'] = 2000  # Raw +1000, calibrated zero.
+        self.client.publish(self.result, self.session)
+        self.assertEqual(self.client.stop_epoch.value, 1)
+        self.result['components']['constant'] = 3000
+        self.client.publish(self.result, self.session)
+        self.assertEqual(self.client.stop_epoch.value, 1)
+        self.assertEqual(json.loads(self.client.latest)['stop_epoch'], 1)
+
+    def test_live_gain_handoff_keeps_pid_and_all_zero_barriers_without_false_profile_cancellation(self):
+        self.client.config = {'effect_gains': {'spring': 2}}
+        self.client.dynamic_calibration = SimpleNamespace(value=1)
+        self.client.ready = False
+        self.client.last_zero = False
+        self.result['components'].update(spring=1000, constant=-2000)
+        self.client.publish(self.result, self.session)  # Cancels only at the saved gain, not during ×3.
+        self.assertEqual(self.client.stop_epoch.value, 0)
+        self.result['components'] = dict.fromkeys(OUTPUT_COMPONENTS, 0)
+        self.client.publish(self.result, self.session)
+        self.assertEqual(self.client.stop_epoch.value, 1)
+        self.result['components']['spring'] = 1000
+        self.client.publish(self.result, self.session)
+        self.assertEqual(json.loads(self.client.latest)['stop_epoch'], 1)
+        self.result['info'] = dict(event_type=6, report_type=1, packet_hex='5a010300')
+        self.client.publish(self.result, self.session)
+        self.assertEqual(self.client.stop_epoch.value, 2)
+
+    def test_full_pool_force_packet_still_fits_4k_despite_larger_f10_status(self):
+        self.session.core.engine.effects = {i: dict(kind=1, level=-32768, running=True, gain=1.0) for i in range(1, 41)}
+        self.client.ready = False
+        self.client.publish(self.result, self.session)
+        self.assertLessEqual(len(self.client.latest), worker.MAX_PACKET)
 
     def test_unresponsive_child_is_detected_and_close_kills_it(self):
         with patch('time.monotonic_ns', return_value=2_000_000_000), self.assertRaises(TimeoutError):

@@ -8,9 +8,10 @@ from pathlib import Path
 import tempfile
 
 from .input.mapping import preset, validate_mapping
+from .ffb.mixer import validate_effect_gains
 
 FFB_DEFAULTS = dict(ffb_strength=100, ffb_max_strength=100, ffb_polarity=-1,
-                    ffb_slew_rate=327670, ffb_seconds=None)
+                    ffb_slew_rate=327670, ffb_seconds=None, ffb_spring_gain=3.0)
 DEFAULTS = dict(FFB_DEFAULTS, gas_axis='y', identity='g29', auto_pidff=True, invert_gas=False)
 
 
@@ -29,7 +30,7 @@ def duration(value):
 
 
 def default_profile():
-    return dict(DEFAULTS, preset='g29', mapping=preset())
+    return dict(DEFAULTS, ffb_effect_gains={}, preset='g29', mapping=preset())
 
 
 def validate_profile(value):
@@ -37,6 +38,18 @@ def validate_profile(value):
     if not isinstance(value, dict) or set(value)-set(base):
         raise ValueError('Campos desconhecidos no perfil')
     base.update(copy.deepcopy(value))
+    if not isinstance(base['ffb_effect_gains'], dict):
+        raise ValueError('ffb_effect_gains deve ser um objeto com multiplicadores por família')
+    base['ffb_effect_gains'] = validate_effect_gains(base['ffb_effect_gains'])
+    base['ffb_spring_gain'] = validate_effect_gains({'spring': base['ffb_spring_gain']})['spring']
+    # Migrate the previous per-family representation without replacing an
+    # explicitly selected Spring gain (including 0 or 1).
+    legacy_spring = base['ffb_effect_gains'].pop('spring', None)
+    if legacy_spring is not None:
+        if 'ffb_spring_gain' in value and value['ffb_spring_gain'] != legacy_spring:
+            raise ValueError('Ganhos Spring conflitantes no perfil')
+        base['ffb_spring_gain'] = legacy_spring
+    base['ffb_spring_gain'] = validate_effect_gains({'spring': base['ffb_spring_gain']})['spring']
     for key in ('ffb_strength', 'ffb_max_strength'):
         if type(base[key]) is not int or not 0 <= base[key] <= 100:
             raise ValueError(f'{key}: inteiro 0..100')
@@ -87,7 +100,10 @@ class ProfileStore:
         return copy.deepcopy(self.read().get(self.name(name), default_profile()))
 
     def _write(self, profiles):
-        encoded = json.dumps(dict(version=1, profiles=profiles), ensure_ascii=False, indent=2, allow_nan=False)+'\n'
+        # Spring is always explicit on disk, including migrated/default gains.
+        disk_profiles = {name: {k: v for k, v in profile.items() if k != 'ffb_effect_gains' or v}
+                         for name, profile in profiles.items()}
+        encoded = json.dumps(dict(version=1, profiles=disk_profiles), ensure_ascii=False, indent=2, allow_nan=False)+'\n'
         if len(encoded.encode('utf-8')) > 1_048_576:
             raise ValueError('Arquivo de perfis excessivo')
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -174,7 +174,7 @@ class IntensityTests(unittest.TestCase):
 
     def test_diagnostics_and_full_pool_fit_the_bounded_status_mailbox(self):
         from dfgt_bridge.capture import canonical
-        from dfgt_bridge.physical_worker import MAX_PACKET
+        from dfgt_bridge.physical_worker import MAX_STATUS_PACKET
         policy, _ = self.policy()
         self.frame(policy)
         policy.frame['effects'] = [[i, 1, True, 1.0] for i in range(1, 41)]
@@ -184,7 +184,8 @@ class IntensityTests(unittest.TestCase):
                      io=dict(io_calls=99999, last_io_ns=999999, max_io_ns=999999,
                              gain_commanded=65535, level_uploaded=32767, level_commanded=32767,
                              uploads=99999, deduplicated=99999))
-        self.assertLessEqual(len(canonical(value).encode()), MAX_PACKET)
+        # Status has a dedicated 16 KiB mailbox; force packets remain 4 KiB.
+        self.assertLessEqual(len(canonical(value).encode()), MAX_STATUS_PACKET)
 
     def test_invalid_ipc_strength_stops_and_erases(self):
         for percent in (-1, 101, 200, 0.5, True, '100'):

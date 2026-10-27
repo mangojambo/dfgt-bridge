@@ -16,7 +16,7 @@ Mapping supports the complete existing button set, axis selection, presets, read
 
 ## Force feedback and safety
 
-The main Settings view keeps FFB strength visible; maximum strength, polarity, slew, and duration are grouped under Advanced. Approved values remain 100% strength, 100% maximum, polarity -1, slew 327670, and unlimited normal session duration. Physical FFB starts only through an explicit GUI action or the configured Steam launcher. Opening or editing the GUI does not open a physical output device or create a capture. F9, the independent stop command, effect renewal bound, worker watchdog, and game supervision remain available. See [supervised FFB](SUPERVISED_FFB.md).
+The main Settings view keeps FFB strength and Spring gain visible. Spring gain ranges from ×1.00 to ×4.00 in ×0.25 steps, loads from the selected profile's `ffb_spring_gain`, and saves through the shared profile action. The default is ×3 for new profiles and profiles without an explicit value; custom gains are preserved. Saved gain is used by the next session; saving does not change a running bridge. F5/F6 remain temporary ×3/×4 selections for the current game session. Maximum strength, polarity, slew, and duration are grouped under Advanced. Approved values remain 100% strength, 100% maximum, polarity -1, slew 327670, and unlimited normal session duration. Physical FFB starts only through an explicit GUI action or the configured Steam launcher. Opening or editing the GUI does not open a physical output device or create a capture. F9, the independent stop command, effect renewal bound, worker watchdog, and game supervision remain available. See [supervised FFB](SUPERVISED_FFB.md).
 
 ## Screenshot validation
 

@@ -42,6 +42,13 @@ Each readiness check should report `[PRONTO]`; status should return to `idle` af
 
 Close the game before updating. From the newer checkout, run `sudo ./install.sh`. The installer refuses to update while a bridge session holds its device lock. It preserves profile data and the GUI's automation preference. After an update, repeat the two passive readiness checks above.
 
+In v1.1.0, Spring ×3 is the default for new profiles and profiles without an
+explicit Spring value. Reinstalling migrates old profiles while preserving
+custom gains, including ×1 and the previous per-family Spring field. Other
+default effect gains remain ×1; strength stays 100%/100%, polarity −1, slew
+327670 and duration unlimited. Launch the game normally with the existing
+Steam Launch Options; no additional gain argument or JSON edit is needed.
+
 ## Configure Steam
 
 Paste the launch option printed by the installer. The launcher waits for device readiness before starting Proton, keeps Steam and the game unprivileged, and stops output when the game exits. If automatic integration is disabled in the GUI, the game runs without the bridge.

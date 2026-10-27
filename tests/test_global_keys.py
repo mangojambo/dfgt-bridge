@@ -14,8 +14,9 @@ class GlobalKeysTests(unittest.TestCase):
         self.open = self.enterContext(patch('os.open', return_value=81))
         self.close = self.enterContext(patch('os.close'))
         self.enterContext(patch('os.fstat', return_value=SimpleNamespace(st_rdev=100)))
-        bitmap = sum(1 << v for v in (28, 30, 65, 66, 67, 68)).to_bytes(96, 'little')
-        self.enterContext(patch('fcntl.ioctl', return_value=bitmap))
+        bitmap = sum(1 << v for v in (28, 30, 63, 64, 65, 66, 67, 68)).to_bytes(96, 'little')
+        self.ioctl = self.enterContext(patch('fcntl.ioctl', side_effect=lambda fd, op, data:
+            bytes(96) if op == 0x80604518 else bitmap))
 
     def keys(self):
         keys = GlobalKeys(enable_ffb=True, path='fake-keyboard')
@@ -34,6 +35,7 @@ class GlobalKeysTests(unittest.TestCase):
             (65, 1), (66, 1), (67, 1), (68, 1), (66, 2), (67, 0), (30, 1)))
         with patch('os.read', return_value=data):
             self.assertEqual(keys.read(), [65, 66, 67, 68])
+        self.assertEqual(keys.stop_reasons, ['F9'])
 
     def test_missing_permissions_is_reported_without_force_or_grab(self):
         self.open.side_effect = PermissionError('no permission')
@@ -53,9 +55,40 @@ class GlobalKeysTests(unittest.TestCase):
             self.assertEqual(keys.read(), [])
         with patch('os.read', return_value=b''):
             self.assertEqual(keys.read(), [67])
+        self.assertEqual(keys.stop_reasons, ['keyboard_loss'])
         self.assertFalse(keys.devices)
 
     def test_syn_dropped_fails_to_emergency_instead_of_losing_f9(self):
         keys = self.keys()
         with patch('os.read', return_value=INPUT_EVENT.pack(0, 0, 0, 3, 0)):
             self.assertEqual(keys.read(), [67])
+        self.assertEqual(keys.stop_reasons, ['keyboard_loss'])
+        self.assertIn('SYN_DROPPED', keys.errors[-1])
+
+    def test_f5_f6_ignore_autorepeat_duplicate_down_and_release(self):
+        keys = self.keys()
+        def events(pairs):
+            return b''.join(INPUT_EVENT.pack(0, 0, 1, k, v) for k, v in pairs)
+        with patch('os.read', return_value=events(((63, 1), (63, 2), (63, 1), (64, 1), (64, 2)))):
+            self.assertEqual(keys.read(), [63, 64])
+        with patch('os.read', return_value=events(((63, 0), (64, 0), (64, 1), (63, 1)))):
+            self.assertEqual(keys.read(), [64, 63])
+
+    def test_modified_f5_f6_leave_system_shortcuts_alone_and_never_mask_f9(self):
+        keys = self.keys()
+        for modifier in (29, 97, 42, 54, 56, 100, 125, 126):
+            data = b''.join(INPUT_EVENT.pack(0, 0, 1, k, v) for k, v in (
+                (modifier, 1), (63, 1), (64, 1), (67, 1),
+                (63, 0), (64, 0), (modifier, 0), (63, 1), (63, 0)))
+            with patch('os.read', return_value=data):
+                self.assertEqual(keys.read(), [67, 63])
+
+    def test_modifier_held_at_start_is_read_without_grabbing_keyboard(self):
+        original = self.ioctl.side_effect
+        held = (1 << 125).to_bytes(96, 'little')
+        self.ioctl.side_effect = lambda fd, op, data: held if op == 0x80604518 else original(fd, op, data)
+        keys = self.keys()
+        data = INPUT_EVENT.pack(0, 0, 1, 64, 1)
+        with patch('os.read', return_value=data):
+            self.assertEqual(keys.read(), [])
+        self.assertFalse(any(call.args[1] == 0x40044590 for call in self.ioctl.call_args_list))  # No EVIOCGRAB.

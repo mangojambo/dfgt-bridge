@@ -33,19 +33,38 @@ def replay_physical(path, *, core_capture=None, verify_compatible=False, _core_c
                 if core_header['metadata']['physical_config'] != metadata['config']:
                     raise ValueError('Perfil físico difere da captura principal')
             match = metadata['implementation_sha256'] == implementation_hash()
-            if metadata.get('diagnostics_version', 1) not in (1, 2):
+            if metadata.get('diagnostics_version', 1) not in (1, 2, 3, 4, 5, 6, 7, 8):
                 raise ValueError('Versão de diagnóstico físico desconhecida')
             if not match and not verify_compatible:
                 raise ValueError('Fontes do trace físico diferentes; use --verify-compatible para conferir resultados')
             backend = MockBackend(clock=lambda: policy.now_ns/1e9)
             # Perfis antigos omitiam slew, cujo default histórico era 16383.5.
-            policy = SupervisedPolicy(backend, **dict({'slew_per_s': 16383.5}, **metadata['config']))
+            diagnostics_version = metadata.get('diagnostics_version', 1)
+            if diagnostics_version < 6:
+                historical = {'effect_gains': {}}
+            elif diagnostics_version < 8 and 'effect_gains' not in metadata['config']:
+                # v6/v7 were recorded while the project default was Spring ×2.
+                historical = {'effect_gains': {'spring': 2.0}}
+            else:
+                historical = {}
+            policy = SupervisedPolicy(backend, **{'slew_per_s': 16383.5, **historical, **metadata['config'],
+                'legacy_spring_keys': diagnostics_version < 8})
             def verify_result(expected):
                 actual = policy.snapshot()
                 # Extensão aditiva v2: traces v1 não continham esse diagnóstico.
                 # Todos os campos e decisões originais continuam sendo comparados.
                 if metadata.get('diagnostics_version', 1) == 1 and 'force_pipeline' not in expected:
                     actual.pop('force_pipeline')
+                if metadata.get('diagnostics_version', 1) < 3 and 'safety_diagnostic' not in expected:
+                    actual.pop('safety_diagnostic')
+                if metadata.get('diagnostics_version', 1) < 4 and 'transient_recovery' not in expected:
+                    actual.pop('transient_recovery')
+                if metadata.get('diagnostics_version', 1) < 5 and 'effect_calibration' not in expected:
+                    actual.pop('effect_calibration')
+                if metadata.get('diagnostics_version', 1) < 7:
+                    for key in ('spring_calibration', 'command_statistics'):
+                        if key not in expected:
+                            actual.pop(key)
                 return actual == expected
             steps = frames = 0
             footer = None

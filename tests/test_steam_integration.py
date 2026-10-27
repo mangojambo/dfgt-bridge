@@ -31,6 +31,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(option,'PROTON_ENABLE_HIDRAW=0x046d/0xc24f "/home/deck/.local/bin/dfgt-steam-launch" -- %command%')
         self.assertTrue(self.inst.wrapper.exists())
         self.assertTrue((self.inst.path(RUNTIME)/'src/dfgt_bridge/steam_service.py').is_file())
+        self.assertTrue((self.inst.path(RUNTIME)/'src/dfgt_bridge/ffb/command_stats.py').is_file())
         original=self.inst.profiles.read_bytes()
         self.inst.uninstall();self.inst.uninstall()
         self.assertEqual(self.inst.profiles.read_bytes(),original)
@@ -45,6 +46,79 @@ class InstallerTests(unittest.TestCase):
         before=self.inst.profiles.read_bytes()
         with self.assertRaises(ValueError):self.inst.install()
         self.assertEqual(self.inst.profiles.read_bytes(),before);self.cmd.assert_not_called()
+
+    def test_reinstall_migrates_old_dirt5_and_preserves_custom_gains_idempotently(self):
+        for representation, gain in (('missing', 3.0), ('legacy', 0.0), ('legacy', 1.25), ('legacy', 2.0), ('flat', 1.0), ('flat', 3.0)):
+            with self.subTest(representation=representation, gain=gain):
+                profile = default_profile()
+                profile.pop('ffb_spring_gain')
+                profile['ffb_effect_gains'] = {'damper': 1.5}
+                if representation == 'legacy':
+                    profile['ffb_effect_gains']['spring'] = gain
+                elif representation == 'flat':
+                    profile['ffb_spring_gain'] = gain
+                else:
+                    profile.pop('ffb_effect_gains')  # Public profile before calibration fields.
+                other = dict(default_profile(), ffb_spring_gain=.75, ffb_strength=50)
+                self.inst.profiles.parent.mkdir(parents=True, exist_ok=True)
+                self.inst.profiles.write_text(json.dumps(dict(version=1, profiles={'dirt5': profile, 'other': other})))
+                self.inst.install()
+                store = ProfileStore(self.inst.profiles)
+                value = store.load('dirt5')
+                self.assertEqual(value['ffb_spring_gain'], gain)
+                self.assertEqual(value['ffb_effect_gains'], {} if representation == 'missing' else {'damper': 1.5})
+                self.assertEqual(store.load('other'), other)
+                saved = json.loads(self.inst.profiles.read_text())['profiles']['dirt5']
+                self.assertEqual(saved['ffb_spring_gain'], gain)
+                self.assertEqual((value['ffb_strength'], value['ffb_max_strength'], value['ffb_polarity'],
+                                  value['ffb_slew_rate'], value['ffb_seconds']), (100, 100, -1, 327670, None))
+                first = self.inst.profiles.read_bytes()
+                self.inst.install()
+                self.assertEqual(self.inst.profiles.read_bytes(), first)
+
+    def test_installed_profile_reaches_steam_launcher_and_service_with_spring_two(self):
+        from dfgt_bridge import steam_launcher, runner
+        from dfgt_bridge.steam_service import SessionManager
+        self.inst.install()
+        with patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root/'state')}), \
+                patch('os.geteuid', return_value=1000), patch('signal.signal'), \
+                patch.object(steam_launcher, 'dfgt_connected', return_value=True), \
+                patch.object(steam_launcher, 'run_game', return_value=0) as launch:
+            self.assertEqual(steam_launcher.main(['--profiles-file', str(self.inst.profiles), '--', 'proton', 'DiRT5.exe']), 0)
+        settings = launch.call_args.kwargs['settings']
+        self.assertEqual(settings['ffb_spring_gain'], 3.0)
+        factory = Mock(side_effect=FakeRunner)
+        manager = SessionManager(1000, factory, proc=FakeProc(), lock_factory=Mock)
+        manager.request(dict(uid=1000, pid=55), 1, dict(v=1, op='start', profile='dirt5',
+                        mode='normal', detailed=False, settings=settings), 0)
+        self.assertEqual(factory.call_args.args[0]['ffb_spring_gain'], 3.0)
+        self.assertTrue(factory.call_args.kwargs['physical'])
+        with patch.object(runner, 'run') as run, patch.object(runner.signal, 'signal'):
+            runner.main(['--profiles-file', str(self.inst.profiles)])
+        self.assertEqual(run.call_args.args[0].ffb_spring_gain, 3.0)
+
+    def test_saved_gui_spring_three_point_five_reaches_next_steam_runner_session(self):
+        from dfgt_bridge import steam_launcher, runner
+        from dfgt_bridge.steam_service import SessionManager
+        profile = default_profile()
+        profile['ffb_spring_gain'] = 3.5
+        ProfileStore(self.inst.profiles).save('dirt5', profile)
+        self.inst.install()
+        with patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root/'state')}), \
+                patch('os.geteuid', return_value=1000), patch('signal.signal'), \
+                patch.object(steam_launcher, 'dfgt_connected', return_value=True), \
+                patch.object(steam_launcher, 'run_game', return_value=0) as launch:
+            self.assertEqual(steam_launcher.main(['--profiles-file', str(self.inst.profiles), '--', 'proton', 'DiRT5.exe']), 0)
+        settings = launch.call_args.kwargs['settings']
+        self.assertEqual(settings['ffb_spring_gain'], 3.5)
+        factory = Mock(side_effect=FakeRunner)
+        manager = SessionManager(1000, factory, proc=FakeProc(), lock_factory=Mock)
+        manager.request(dict(uid=1000, pid=55), 1, dict(v=1, op='start', profile='dirt5',
+                        mode='normal', detailed=False, settings=settings), 0)
+        self.assertEqual(factory.call_args.args[0]['ffb_spring_gain'], 3.5)
+        with patch.object(runner, 'run') as run, patch.object(runner.signal, 'signal'):
+            runner.main(['--profiles-file', str(self.inst.profiles)])
+        self.assertEqual(run.call_args.args[0].ffb_spring_gain, 3.5)
 
     def test_foreign_wrapper_and_units_are_preserved(self):
         self.inst.wrapper.parent.mkdir(parents=True);self.inst.wrapper.write_text('personal script')

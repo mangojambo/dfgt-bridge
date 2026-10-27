@@ -1,6 +1,6 @@
 # Inicialização automática pela Steam
 
-A integração está implementada e coberta por testes offline. Ainda depende de instalação e validação no SteamOS pelo operador, em Desktop Mode e Gaming Mode. Nenhum serviço, módulo ou motor foi iniciado nesta entrega.
+A integração é coberta por testes offline e foi validada manualmente pelo operador em SteamOS/DiRT 5. Essa validação não equivale a certificação para outros ambientes. Nenhum serviço, módulo ou motor foi iniciado pelo agente durante esta etapa.
 
 ## Arquitetura e autorização
 
@@ -42,6 +42,14 @@ Os prazos de inicialização não limitam a partida: serviço 40 s, cliente 70 s
 Ao terminar o jogo, o launcher solicita parada do FFB antes de aguardar auxiliares. Sinais/cancelamento encerram os processos acompanhados. EOF do cliente, perda da identidade do launcher ou ausência de heartbeat por 3 s encerram a sessão. O serviço verifica progresso do renderer (1,5 s), além do watchdog físico independente existente (100 ms), efeito EVDEV finito (160 ms) e watchdog systemd (5 s). Esses prazos cobrem falhas diferentes, não são uma promessa de latência única.
 
 F7/F8 continuam ajustando intensidade, F9 trava a saída em zero e F10 mostra diagnóstico. Após F9, reiniciar explicitamente a sessão é a forma de reativar no modo automático. Se teclas globais não estiverem disponíveis, use o comando independente `--stop` abaixo. SIGKILL do launcher fecha sua conexão e interrompe o FFB; ele não pode executar cleanup Python dos processos Wine nessa situação. Use **Parar** na Steam para auxiliares remanescentes.
+
+Na versão v1.1.0, F5 seleciona Spring ×3 e F6 seleciona ×4,
+interpolando em 300 ms diretamente no worker físico. Basta reinstalar por
+`sudo ./install.sh`; a Launch Option permanece igual. A escolha é temporária,
+preserva perfis personalizados e não rearma F9. F10 inclui ganho aplicado,
+comando final, pico e estatísticas de saturação. Funcionamento em Gaming Mode
+e conflitos de atalhos ainda requerem confirmação real; detalhes em
+[LIVE_SPRING.md](LIVE_SPRING.md).
 
 ## Validação no equipamento
 

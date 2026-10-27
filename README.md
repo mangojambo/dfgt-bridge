@@ -2,7 +2,7 @@
 
 DFGT Bridge presents a Logitech Driving Force GT as a virtual Logitech G29 on Linux. It was built for SteamOS and DiRT 5, where the virtual wheel gives Proton a HID device the game recognizes while preserving the DFGT's steering, pedals, buttons, and force feedback path.
 
-**Status:** The owner confirmed the complete SteamOS/DiRT 5 integration and physical force feedback. Offline regression tests exercise protocol, mapping, safety policies, service lifecycle, and installer behavior with simulated devices. Hardware checks are called out separately below; this is not a claim that every effect works in every game.
+**Status:** The owner confirmed SteamOS/DiRT 5 integration and manually compared Spring ×2, ×3, and ×4 on the target wheel. Offline regression tests exercise protocol, mapping, safety policies, service lifecycle, and installer behavior with simulated devices. These observations are not torque measurements or universal compatibility claims.
 
 DFGT Bridge is an independent community project. It is not affiliated with, endorsed by, or sponsored by Logitech. Logitech, Driving Force GT, and G29 are trademarks of their respective owner.
 
@@ -21,7 +21,7 @@ DFGT Bridge is an independent community project. It is not affiliated with, endo
 |---|---|
 | DiRT 5 recognition, controls, Steam launcher, SteamOS service | Confirmed by the owner on the target SteamOS setup |
 | Full-scale physical FFB profile (100%, polarity -1) | Owner approved and tested |
-| Offline tests | 483 cases: 482 pass; native Tk smoke test skipped without a display |
+| Offline tests (v1.1.0 candidate) | 574 cases: 573 pass; native Tk smoke test skipped without a display |
 | Installer, socket protocol, GUI widgets, PID lifecycle | Automated tests with fakes; no clean-install VM or fresh SteamOS image was available here |
 | Non-DiRT 5 games, other wheels, other architectures | Not validated |
 | Fidelity of every PID effect across complete race scenarios | Not established; see [limitations](docs/LIMITATIONS.md) |
@@ -102,9 +102,25 @@ The approved profile is:
 | Polarity | -1 |
 | Slew rate | 327670 units/s |
 | Session duration | Unlimited |
+| Spring / other effect multipliers | 3.0 / 1.0 |
 | Virtual identity / PIDFF | G29 / automatic |
 
-F7/F8 adjust strength, F9 latches output to zero, and F10 shows diagnostics. The independent worker watchdog, short EVDEV effect renewal, game-process supervision, and systemd watchdog remain active during an unlimited session. F9 never rearms automatically. Physical output is not used by the offline test backend.
+F5 selects Spring ×3 and F6 selects Spring ×4 temporarily, with a 300 ms
+transition. Repeated selections keep the same target. F7/F8 adjust strength,
+F9 latches output to zero, and F10 shows calibration, commanded force and
+saturation diagnostics. Selections do not change the saved profile or rearm
+F9. See [live Spring controls and limitations](docs/LIVE_SPRING.md).
+The independent worker watchdog, short EVDEV effect renewal, game-process
+supervision, and systemd watchdog remain active during an unlimited session.
+Physical output is not used by the offline test backend.
+
+Spring ×3 is the official default for new profiles and profiles without an
+explicit Spring value. Existing explicit custom gains remain unchanged. The
+GUI's Force Feedback section saves Spring ×1..×4 in ×0.25 steps for the next
+session. The user's personal ×3 selection is not imposed on other profiles.
+F5/F6 temporarily select ×3/×4 during a race and never edit the saved value.
+No JSON edits or additional Steam Launch Options are required. See
+[GUI settings](docs/GUI.md) and [DFGT calibration and migration](docs/DFGT_CALIBRATION.md).
 
 Full-scale force can move the wheel abruptly and pinch or strike hands. Keep hands clear during setup, ensure the wheel is firmly mounted, disconnect other force-feedback software, and keep the emergency stop available. The bridge cannot prevent unrelated software from writing to the same physical wheel; its lock only coordinates with other instances that honor the same lock. Read [FFB safety and supervision](docs/SUPERVISED_FFB.md) before use.
 

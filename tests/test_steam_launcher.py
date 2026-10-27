@@ -141,6 +141,7 @@ class LauncherTests(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME':temp.name}))
         self.enterContext(patch('os.geteuid',return_value=1000))
         self.enterContext(patch('signal.signal',return_value=signal.SIG_DFL))
+        self.enterContext(patch('dfgt_bridge.steam_launcher.subprocess.run'))  # No desktop notifications offline.
         detector_kwargs = ({'side_effect':detected} if isinstance(detected,(list,tuple)) or isinstance(detected,BaseException)
                            else {'return_value':detected})
         detector=self.enterContext(patch('dfgt_bridge.steam_launcher.dfgt_connected',**detector_kwargs))

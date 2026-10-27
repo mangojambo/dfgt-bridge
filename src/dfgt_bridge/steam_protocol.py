@@ -39,7 +39,7 @@ def peer(channel):
 
 def approved(profile):
     value = validate_profile(profile)
-    if any(value[k] != v for k, v in DEFAULTS.items()):
+    if any(value[k] != v for k, v in DEFAULTS.items() if k != 'ffb_spring_gain'):
         raise ValueError('Perfil dirt5 deve conservar 100%/100%, -1, 327670, unlimited, Y, G29 e auto PIDFF')
     baseline = preset()
     bindings = value['mapping']['bindings']
